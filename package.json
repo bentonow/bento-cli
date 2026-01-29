@@ -1,6 +1,6 @@
 {
   "name": "@bentonow/bento-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Command-line interface for Bento email marketing. Manage subscribers, tags, events, and broadcasts from your terminal.",
   "type": "module",
   "bin": {

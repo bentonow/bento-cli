@@ -58,7 +58,7 @@ export function registerProfileCommands(program: Command): void {
           }
 
           output.info(`Creating profile "${name}"`);
-          output.log("Find your credentials at: https://app.bentonow.com/settings/api");
+          output.log("Find your credentials at: https://app.bentonow.com/account/teams");
           output.newline();
 
           if (!publishableKey) {

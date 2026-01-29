@@ -31,7 +31,7 @@ bento tags list
 
 ## Authentication
 
-The CLI uses your Bento API credentials. Get them from [Settings > API](https://app.bentonow.com/settings/api) in your Bento dashboard.
+The CLI uses your Bento API credentials. Get them from [Settings > Teams](https://app.bentonow.com/account/teams) in your Bento dashboard.
 
 ```bash
 # Interactive login (prompts for credentials)

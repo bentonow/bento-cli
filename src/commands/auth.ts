@@ -65,7 +65,7 @@ export function registerAuthCommands(program: Command): void {
           }
 
           output.info("Authenticate with your Bento API credentials.");
-          output.log("Find your credentials at: https://app.bentonow.com/settings/api");
+          output.log("Find your credentials at: https://app.bentonow.com/account/teams");
           output.newline();
 
           if (!publishableKey) {
