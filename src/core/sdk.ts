@@ -30,6 +30,8 @@ import type {
   TrackEventParams,
   TagSubscriberParams,
   AddFieldParams,
+  Broadcast,
+  CreateBroadcastInput,
 } from "../types/sdk";
 
 /**
@@ -397,6 +399,26 @@ export class BentoClient {
   async getSiteStats(): Promise<SiteStats> {
     const sdk = await this.getClient();
     return this.handleApiCall(() => sdk.V1.Stats.getSiteStats());
+  }
+
+  // ============================================================
+  // Broadcast Operations
+  // ============================================================
+
+  /**
+   * List all broadcasts
+   */
+  async getBroadcasts(): Promise<Broadcast[]> {
+    const sdk = await this.getClient();
+    return this.handleApiCall(() => sdk.V1.Broadcasts.getBroadcasts());
+  }
+
+  /**
+   * Create a new broadcast (draft)
+   */
+  async createBroadcast(input: CreateBroadcastInput): Promise<Broadcast[]> {
+    const sdk = await this.getClient();
+    return this.handleApiCall(() => sdk.V1.Broadcasts.createBroadcast([input]));
   }
 
   // ============================================================
