@@ -46,8 +46,9 @@ describe("bento profile", () => {
   it("shows add help", () => {
     const result = runCLI(["profile", "add", "--help"]);
     expect(result.stdout).toContain("Add a new profile");
-    expect(result.stdout).toContain("--api-key");
-    expect(result.stdout).toContain("--site-id");
+    expect(result.stdout).toContain("--publishable-key");
+    expect(result.stdout).toContain("--secret-key");
+    expect(result.stdout).toContain("--site-uuid");
   });
 
   it("shows list help", () => {
@@ -101,14 +102,16 @@ describe("bento profile list", () => {
         current: "prod",
         profiles: {
           prod: {
-            apiKey: "prod-key",
-            siteId: "prod-site",
+            publishableKey: "prod-pub-key",
+            secretKey: "prod-secret-key",
+            siteUuid: "prod-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
           staging: {
-            apiKey: "staging-key",
-            siteId: "staging-site",
+            publishableKey: "staging-pub-key",
+            secretKey: "staging-secret-key",
+            siteUuid: "staging-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -119,8 +122,8 @@ describe("bento profile list", () => {
     const result = runCLI(["profile", "list"], { configPath });
     expect(result.stdout).toContain("prod");
     expect(result.stdout).toContain("staging");
-    expect(result.stdout).toContain("prod-site");
-    expect(result.stdout).toContain("staging-site");
+    expect(result.stdout).toContain("prod-site-uuid");
+    expect(result.stdout).toContain("staging-site-uuid");
     // Current profile marker
     expect(result.stdout).toContain("✓");
     expect(result.exitCode).toBe(0);
@@ -135,8 +138,9 @@ describe("bento profile list", () => {
         current: "default",
         profiles: {
           default: {
-            apiKey: "test-key",
-            siteId: "test-site",
+            publishableKey: "test-pub-key",
+            secretKey: "test-secret-key",
+            siteUuid: "test-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -151,7 +155,7 @@ describe("bento profile list", () => {
     expect(json.data.length).toBe(1);
     expect(json.data[0].name).toBe("default");
     expect(json.data[0].current).toBe(true);
-    expect(json.data[0].siteId).toBe("test-site");
+    expect(json.data[0].siteUuid).toBe("test-site-uuid");
     expect(result.exitCode).toBe(0);
   });
 
@@ -191,14 +195,16 @@ describe("bento profile use", () => {
         current: "default",
         profiles: {
           default: {
-            apiKey: "default-key",
-            siteId: "default-site",
+            publishableKey: "default-pub-key",
+            secretKey: "default-secret-key",
+            siteUuid: "default-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
           staging: {
-            apiKey: "staging-key",
-            siteId: "staging-site",
+            publishableKey: "staging-pub-key",
+            secretKey: "staging-secret-key",
+            siteUuid: "staging-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -236,8 +242,9 @@ describe("bento profile use", () => {
         current: null,
         profiles: {
           staging: {
-            apiKey: "staging-key",
-            siteId: "staging-site",
+            publishableKey: "staging-pub-key",
+            secretKey: "staging-secret-key",
+            siteUuid: "staging-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -259,8 +266,9 @@ describe("bento profile use", () => {
         current: null,
         profiles: {
           staging: {
-            apiKey: "staging-key",
-            siteId: "staging-site",
+            publishableKey: "staging-pub-key",
+            secretKey: "staging-secret-key",
+            siteUuid: "staging-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -311,8 +319,9 @@ describe("bento profile remove", () => {
         current: "default",
         profiles: {
           default: {
-            apiKey: "test-key",
-            siteId: "test-site",
+            publishableKey: "test-pub-key",
+            secretKey: "test-secret-key",
+            siteUuid: "test-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -338,14 +347,16 @@ describe("bento profile remove", () => {
         current: "staging",
         profiles: {
           default: {
-            apiKey: "default-key",
-            siteId: "default-site",
+            publishableKey: "default-pub-key",
+            secretKey: "default-secret-key",
+            siteUuid: "default-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
           staging: {
-            apiKey: "staging-key",
-            siteId: "staging-site",
+            publishableKey: "staging-pub-key",
+            secretKey: "staging-secret-key",
+            siteUuid: "staging-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -376,8 +387,9 @@ describe("bento profile remove", () => {
         current: "default",
         profiles: {
           default: {
-            apiKey: "default-key",
-            siteId: "default-site",
+            publishableKey: "default-pub-key",
+            secretKey: "default-secret-key",
+            siteUuid: "default-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -406,8 +418,9 @@ describe("bento profile remove", () => {
         current: "default",
         profiles: {
           default: {
-            apiKey: "test-key",
-            siteId: "test-site",
+            publishableKey: "test-pub-key",
+            secretKey: "test-secret-key",
+            siteUuid: "test-site-uuid",
             createdAt: now,
             updatedAt: now,
           },
@@ -440,8 +453,9 @@ describe("bento profile add", () => {
           current: "default",
           profiles: {
             default: {
-              apiKey: "test-key",
-              siteId: "test-site",
+              publishableKey: "test-pub-key",
+              secretKey: "test-secret-key",
+              siteUuid: "test-site-uuid",
               createdAt: now,
               updatedAt: now,
             },
@@ -450,7 +464,17 @@ describe("bento profile add", () => {
       );
 
       const result = runCLI(
-        ["profile", "add", "default", "--api-key", "new-key", "--site-id", "new-site"],
+        [
+          "profile",
+          "add",
+          "default",
+          "--publishable-key",
+          "new-pub",
+          "--secret-key",
+          "new-secret",
+          "--site-uuid",
+          "new-uuid",
+        ],
         { configPath }
       );
       expect(result.stderr).toContain("already exists");
@@ -460,8 +484,8 @@ describe("bento profile add", () => {
     }
   });
 
-  it("requires --api-key and --site-id in non-interactive mode", () => {
-    const result = runCLI(["profile", "add", "newprofile", "--api-key", "test"]);
+  it("requires all credentials in non-interactive mode", () => {
+    const result = runCLI(["profile", "add", "newprofile", "--publishable-key", "test"]);
     expect(result.stderr).toContain("Non-interactive mode requires");
     expect(result.exitCode).toBe(1);
   });
@@ -478,7 +502,17 @@ describe("bento profile add", () => {
 
       // Profile names with special characters should be rejected by ConfigManager
       const result = runCLI(
-        ["profile", "add", "bad name!", "--api-key", "key", "--site-id", "site"],
+        [
+          "profile",
+          "add",
+          "bad name!",
+          "--publishable-key",
+          "key",
+          "--secret-key",
+          "secret",
+          "--site-uuid",
+          "uuid",
+        ],
         { configPath }
       );
       // The error comes from validateCredentials failing (expected behavior)
