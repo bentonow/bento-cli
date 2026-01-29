@@ -44,6 +44,40 @@ describe("utils/csv", () => {
     });
   });
 
+  it("parses subscriber CSV with tags and remove_tags (Bento format)", async () => {
+    const file = await createTempFile(
+      "bento-format.csv",
+      [
+        "email,tags,remove_tags,first_name,last_name",
+        'jesse@example.com,"customer,mql",lead,Jesse,Hanley',
+        'alice@example.com,"newsletter,active",,Alice,Smith',
+      ].join("\n")
+    );
+
+    const result = await parseSubscriberCSV(file);
+    expect(result.errors).toHaveLength(0);
+    expect(result.records).toHaveLength(2);
+
+    expect(result.records[0]).toEqual({
+      email: "jesse@example.com",
+      tags: ["customer", "mql"],
+      remove_tags: ["lead"],
+      fields: {
+        first_name: "Jesse",
+        last_name: "Hanley",
+      },
+    });
+
+    expect(result.records[1]).toEqual({
+      email: "alice@example.com",
+      tags: ["newsletter", "active"],
+      fields: {
+        first_name: "Alice",
+        last_name: "Smith",
+      },
+    });
+  });
+
   it("reports errors for invalid or missing emails", async () => {
     const file = await createTempFile(
       "invalid.csv",
