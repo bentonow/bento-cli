@@ -139,6 +139,55 @@ describe("ConfigManager", () => {
         code: "INVALID_SCHEMA",
       });
     });
+
+    it("backfills timestamps for legacy profiles missing them", async () => {
+      const legacyConfig = {
+        version: 1,
+        current: "prod",
+        profiles: {
+          prod: { apiKey: "key", siteId: "site" },
+        },
+      };
+      await writeFile(configPath, JSON.stringify(legacyConfig));
+
+      const config = await configManager.load();
+      const profile = config.profiles.prod;
+
+      expect(typeof profile.createdAt).toBe("string");
+      expect(typeof profile.updatedAt).toBe("string");
+      expect(Number.isNaN(Date.parse(profile.createdAt))).toBeFalse();
+      expect(Number.isNaN(Date.parse(profile.updatedAt))).toBeFalse();
+      expect(profile.createdAt).toBe(profile.updatedAt);
+    });
+
+    it("preserves provided timestamps but fixes invalid or missing ones", async () => {
+      const legacyConfig = {
+        version: 1,
+        current: "partial",
+        profiles: {
+          partial: {
+            apiKey: "key",
+            siteId: "site",
+            createdAt: "2024-01-01T00:00:00.000Z",
+          },
+          malformed: {
+            apiKey: "key",
+            siteId: "site",
+            createdAt: 123,
+            updatedAt: 456,
+          },
+        },
+      };
+      await writeFile(configPath, JSON.stringify(legacyConfig));
+
+      const config = await configManager.load();
+
+      expect(config.profiles.partial.createdAt).toBe("2024-01-01T00:00:00.000Z");
+      expect(config.profiles.partial.updatedAt).toBe("2024-01-01T00:00:00.000Z");
+
+      expect(Number.isNaN(Date.parse(config.profiles.malformed.createdAt))).toBeFalse();
+      expect(config.profiles.malformed.createdAt).toBe(config.profiles.malformed.updatedAt);
+    });
   });
 
   describe("save()", () => {
