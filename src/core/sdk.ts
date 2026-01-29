@@ -137,12 +137,17 @@ export class BentoClient {
     params: SearchSubscribersParams
   ): Promise<Subscriber<Record<string, unknown>> | null> {
     const sdk = await this.getClient();
-    // SDK expects either { email } or { uuid }, not both optional
+    
+    if (!params.email && !params.uuid) {
+      throw new CLIError(
+        "Either email or uuid must be provided to search for a subscriber",
+        "VALIDATION_ERROR"
+      );
+    }
+    
     const sdkParams = params.email
       ? { email: params.email }
-      : params.uuid
-        ? { uuid: params.uuid }
-        : undefined;
+      : { uuid: params.uuid! };
     return this.handleApiCall(() => sdk.V1.Subscribers.getSubscribers(sdkParams));
   }
 
