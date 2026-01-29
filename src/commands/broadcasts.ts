@@ -53,21 +53,28 @@ export function registerBroadcastsCommands(program: Command): void {
         }
 
         output.table(
-          broadcastList.map((b) => ({
-            name: b.attributes.name,
-            subject: b.attributes.subject,
-            type: b.attributes.type,
-            from: `${b.attributes.from.name} <${b.attributes.from.email}>`,
-            batchSize: b.attributes.batch_size_per_hour.toLocaleString(),
-            created: formatDate(b.attributes.created_at),
-          })),
+          broadcastList.map((b) => {
+            // Handle both SDK type structure and actual API response
+            const attrs = b.attributes as Record<string, unknown>;
+            const template = attrs.template as { subject?: string } | undefined;
+            const stats = attrs.stats as { recipients?: number; total_opens?: number; total_clicks?: number } | undefined;
+
+            return {
+              name: attrs.name as string,
+              subject: template?.subject ?? (attrs.subject as string) ?? "-",
+              recipients: stats?.recipients?.toLocaleString() ?? "-",
+              opens: stats?.total_opens?.toLocaleString() ?? "-",
+              clicks: stats?.total_clicks?.toLocaleString() ?? "-",
+              created: formatDate(attrs.created_at as string),
+            };
+          }),
           {
             columns: [
               { key: "name", header: "NAME" },
               { key: "subject", header: "SUBJECT" },
-              { key: "type", header: "TYPE" },
-              { key: "from", header: "FROM" },
-              { key: "batchSize", header: "BATCH/HR" },
+              { key: "recipients", header: "SENT" },
+              { key: "opens", header: "OPENS" },
+              { key: "clicks", header: "CLICKS" },
               { key: "created", header: "CREATED" },
             ],
             meta: { total: broadcastList.length },
