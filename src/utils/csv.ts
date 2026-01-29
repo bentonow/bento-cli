@@ -12,6 +12,7 @@ export interface SubscriberCSVRecord {
   email: string;
   name?: string;
   tags?: string[];
+  remove_tags?: string[];
   fields?: Record<string, string>;
 }
 
@@ -65,6 +66,7 @@ export async function parseSubscriberCSV(filePath: string): Promise<SubscriberCS
 
   const nameKey = findColumnKey(headerKeys, "name");
   const tagsKey = findColumnKey(headerKeys, "tags");
+  const removeTagsKey = findColumnKey(headerKeys, "remove_tags");
 
   rows.forEach((row, index) => {
     const lineNumber = index + 2;
@@ -111,6 +113,19 @@ export async function parseSubscriberCSV(filePath: string): Promise<SubscriberCS
       }
     }
 
+    if (removeTagsKey) {
+      const rawRemoveTags = row[removeTagsKey];
+      if (rawRemoveTags) {
+        const removeTags = rawRemoveTags
+          .split(/[,;]/)
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+        if (removeTags.length > 0) {
+          record.remove_tags = removeTags;
+        }
+      }
+    }
+
     const fields: Record<string, string> = {};
     for (const [column, value] of Object.entries(row)) {
       if (!value) continue;
@@ -119,7 +134,8 @@ export async function parseSubscriberCSV(filePath: string): Promise<SubscriberCS
       if (
         equalsColumn(column, emailKey) ||
         equalsColumn(column, nameKey) ||
-        equalsColumn(column, tagsKey)
+        equalsColumn(column, tagsKey) ||
+        equalsColumn(column, removeTagsKey)
       ) {
         continue;
       }
