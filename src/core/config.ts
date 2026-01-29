@@ -40,6 +40,9 @@ export class ConfigManager {
   constructor(configPath?: string) {
     if (configPath) {
       this.configPath = configPath;
+    } else if (process.env.BENTO_CONFIG_PATH) {
+      // Support config path override via environment variable (for testing)
+      this.configPath = process.env.BENTO_CONFIG_PATH;
     } else {
       const paths = envPaths("bento", { suffix: "" });
       // Use data path for Application Support on macOS (per spec)
