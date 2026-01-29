@@ -12,13 +12,14 @@ describe("bento CLI", () => {
   it("shows version with --version flag", () => {
     const result = spawnSync(["bun", "run", "src/cli.ts", "--version"]);
     const stdout = result.stdout.toString();
-    expect(stdout).toContain("0.1.0");
+    expect(stdout).toContain("0.1.1");
   });
 
-  it("prints help when no command is provided", () => {
+  it("shows welcome screen when no command is provided", () => {
     const result = spawnSync(["bun", "run", "src/cli.ts"]);
     const stdout = result.stdout.toString();
-    expect(stdout).toContain("Usage: bento");
+    expect(stdout).toContain("Email marketing from your terminal");
+    expect(stdout).toContain("Quick Start");
     expect(result.exitCode).toBe(0);
   });
 

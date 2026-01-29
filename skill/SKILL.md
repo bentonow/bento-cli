@@ -48,7 +48,7 @@ bento auth status
 bento auth logout
 ```
 
-**Credentials**: Get from [Settings > API](https://app.bentonow.com/settings/api) in Bento dashboard.
+**Credentials**: Get from [Settings > Teams](https://app.bentonow.com/account/teams) in Bento dashboard.
 
 ### Profile Management
 
