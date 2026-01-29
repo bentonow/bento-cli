@@ -24,6 +24,14 @@ export type { Field, FieldAttributes } from "@bentonow/bento-node-sdk/src/sdk/fi
 // Stats types
 export type { SiteStats, SegmentStats, ReportStats } from "@bentonow/bento-node-sdk/src/sdk/stats/types";
 
+// Broadcast types
+export type {
+  Broadcast,
+  BroadcastAttributes,
+  BroadcastType,
+  CreateBroadcastInput,
+} from "@bentonow/bento-node-sdk/src/sdk/broadcasts/types";
+
 // Base entity type
 export type { BaseEntity } from "@bentonow/bento-node-sdk/src/sdk/types";
 
