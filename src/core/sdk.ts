@@ -462,8 +462,59 @@ export class BentoClient {
    * List all broadcasts
    */
   async getBroadcasts(): Promise<Broadcast[]> {
-    const sdk = await this.getClient();
-    return this.handleApiCall(() => sdk.V1.Broadcasts.getBroadcasts());
+    const perPage = 100;
+    const maxPages = 200;
+    const broadcasts: Broadcast[] = [];
+    const seenIds = new Set<string>();
+
+    type BroadcastListResponse = {
+      data?: Broadcast[];
+      meta?: { total?: number; count?: number; page?: number; per_page?: number };
+    };
+
+    let page = 1;
+    let total: number | undefined;
+
+    while (page <= maxPages) {
+      const response = await this.apiGet<BroadcastListResponse | Broadcast[]>(
+        "/fetch/broadcasts",
+        {
+          page,
+          per_page: perPage,
+        }
+      );
+
+      const data = Array.isArray(response) ? response : response.data ?? [];
+      const meta = Array.isArray(response) ? undefined : response.meta;
+
+      if (meta?.total !== undefined) {
+        total = meta.total;
+      }
+
+      if (data.length === 0) {
+        break;
+      }
+
+      let added = 0;
+      for (const item of data) {
+        if (seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+        broadcasts.push(item);
+        added += 1;
+      }
+
+      if (total !== undefined && broadcasts.length >= total) {
+        break;
+      }
+
+      if (added === 0) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    return broadcasts;
   }
 
   /**

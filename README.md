@@ -8,12 +8,17 @@ Command-line interface for [Bento](https://bentonow.com) email marketing. Manage
 ## Installation
 
 ```bash
-# Install globally with npm
+# Recommended: Run with npx (always uses latest version)
+npx @bentonow/bento-cli --help
+
+# Or install globally
 npm install -g @bentonow/bento-cli
 
 # Or with Bun
 bun install -g @bentonow/bento-cli
 ```
+
+> **Tip:** Using `npx` is recommended when possible—it always fetches the latest version, requires no installation, and is ideal for CI/CD pipelines.
 
 ## Quick Start
 
@@ -39,6 +44,12 @@ bento auth login
 
 # Non-interactive login (for CI/scripts)
 bento auth login \
+  --publishable-key "your-publishable-key" \
+  --secret-key "your-secret-key" \
+  --site-uuid "your-site-uuid"
+
+# Or run directly with npx (no install required)
+npx @bentonow/bento-cli auth login \
   --publishable-key "your-publishable-key" \
   --secret-key "your-secret-key" \
   --site-uuid "your-site-uuid"
@@ -296,6 +307,10 @@ bob@example.com
 psql -c "COPY (SELECT email, name FROM users WHERE active) TO STDOUT CSV HEADER" \
   > /tmp/active-users.csv
 
+# Using npx (no install required)
+npx @bentonow/bento-cli subscribers import /tmp/active-users.csv --confirm --json
+
+# Or if installed globally
 bento subscribers import /tmp/active-users.csv --confirm --json
 ```
 
