@@ -16,16 +16,27 @@ export async function openInBrowser(url: string): Promise<void> {
       detached: true,
     });
 
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+
     child.once("error", (error) => {
-      reject(new BrowserOpenError(`Failed to launch browser: ${error.message}`));
+      finish(new BrowserOpenError(`Failed to launch browser: ${error.message}`));
     });
 
     child.once("close", (code) => {
       if (typeof code === "number" && code > 0) {
-        reject(new BrowserOpenError(`Browser command exited with code ${code}`));
+        finish(new BrowserOpenError(`Browser command exited with code ${code}`));
         return;
       }
-      resolve();
+      finish();
     });
 
     child.unref();
