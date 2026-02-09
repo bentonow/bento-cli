@@ -118,21 +118,6 @@ export class BentoClient {
         return false;
       }
 
-      if (error instanceof Error) {
-        const msg = error.message.toLowerCase();
-        if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("403") || msg.includes("forbidden")) {
-          return false;
-        }
-
-        // Server errors, timeouts, network failures → rethrow so caller can inform the user
-        if (msg.includes("500") || msg.includes("timeout") || msg.includes("econnrefused") || msg.includes("enotfound") || msg.includes("fetch failed")) {
-          throw new CLIError(
-            "Could not reach the Bento API to validate credentials. The service may be temporarily unavailable — please try again.",
-            "API_ERROR"
-          );
-        }
-      }
-
       if (error instanceof RateLimitedError) {
         throw new CLIError(
           "Rate limited while validating credentials. Please wait a moment and try again.",
@@ -147,6 +132,21 @@ export class BentoClient {
           "TIMEOUT",
           408
         );
+      }
+
+      if (error instanceof Error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes("401") || msg.includes("unauthorized") || msg.includes("403") || msg.includes("forbidden")) {
+          return false;
+        }
+
+        // Server errors, timeouts, network failures → rethrow so caller can inform the user
+        if (msg.includes("500") || msg.includes("timeout") || msg.includes("econnrefused") || msg.includes("enotfound") || msg.includes("fetch failed")) {
+          throw new CLIError(
+            "Could not reach the Bento API to validate credentials. The service may be temporarily unavailable — please try again.",
+            "API_ERROR"
+          );
+        }
       }
 
       // Unknown errors — assume bad credentials
