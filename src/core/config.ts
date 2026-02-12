@@ -130,8 +130,15 @@ export class ConfigManager {
       );
     }
 
-    // Default current to null if missing or invalid
-    if (obj.current === undefined || (obj.current !== null && typeof obj.current !== "string")) {
+    // Check current (string or null)
+    if (obj.current !== undefined && obj.current !== null && typeof obj.current !== "string") {
+      throw new ConfigError(
+        "Config 'current' field must be a string or null",
+        "INVALID_SCHEMA"
+      );
+    }
+    // Default current to null if missing
+    if (obj.current === undefined) {
       obj.current = null;
     }
 
