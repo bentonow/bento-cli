@@ -39,6 +39,13 @@ export type {
   CreateBroadcastInput,
 } from "@bentonow/bento-node-sdk/src/sdk/broadcasts/types";
 
+// Sequence and email template types
+export type {
+  Sequence,
+  SequenceAttributes,
+} from "@bentonow/bento-node-sdk/src/sdk/sequences/types";
+export type { EmailTemplate } from "@bentonow/bento-node-sdk/src/sdk/email-templates/types";
+
 // Base entity type
 export type { BaseEntity } from "@bentonow/bento-node-sdk/src/sdk/types";
 
@@ -117,4 +124,23 @@ export interface AddFieldParams<S = Record<string, unknown>> {
 export interface ImportResult {
   imported: number;
   failed?: number;
+}
+
+export type SequenceDelayInterval = "minutes" | "hours" | "days" | "months";
+
+export interface CreateSequenceEmailInput {
+  subject: string;
+  html: string;
+  inboxSnippet?: string;
+  delayInterval?: SequenceDelayInterval;
+  delayCount?: number;
+  editorChoice?: string;
+  cc?: string;
+  bcc?: string;
+  to?: string;
+}
+
+export interface UpdateSequenceEmailInput {
+  subject?: string;
+  html?: string;
 }

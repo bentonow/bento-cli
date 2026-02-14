@@ -7,6 +7,7 @@ import { registerDashboardCommand } from "./commands/dashboard";
 import { registerEventsCommands } from "./commands/events";
 import { registerFieldsCommands } from "./commands/fields";
 import { registerProfileCommands } from "./commands/profile";
+import { registerSequencesCommands } from "./commands/sequences";
 import { registerStatsCommands } from "./commands/stats";
 import { registerSubscribersCommands } from "./commands/subscribers";
 import { registerTagsCommands } from "./commands/tags";
@@ -50,6 +51,7 @@ registerTagsCommands(program);
 registerFieldsCommands(program);
 registerEventsCommands(program);
 registerBroadcastsCommands(program);
+registerSequencesCommands(program);
 registerStatsCommands(program);
 registerDashboardCommand(program);
 
