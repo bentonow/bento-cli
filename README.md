@@ -279,27 +279,13 @@ bento authors list            # IDs for --author-id
 ```bash
 bento segments list
 bento segments get 12 --json
-bento segments update 12 --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
 ```
 
-Segments can't be created through the API yet (it answers 501). Create the segment in the
-Bento app, then edit it with `bento segments update <id>`.
-
-`--query-file` holds the QueryBuilder group:
-
-```json
-{ "condition": "AND", "rules": [
-  { "condition": "AND", "data": { "groupType": "visitor" }, "rules": [
-    { "id": "cached_tag_ids", "field": "cached_tag_ids", "type": "string", "operator": "contains", "value": "42" }
-  ] }
-] }
-```
-
-Tag rules use the `cached_tag_ids` filter with a tag **id** as the value, not the tag name. Every
-top-level rule or group needs `data.groupType` (`visitor` or `event`). The file may also be a
-saved `bento segments get <id> --json` output or a JSON string of the query; the CLI extracts the
-query. The API stores the query as a JSON string; the CLI parses it, so `segments get` prints it
-formatted and `--json` output has `.data.attributes.visitor_event_query` as an object.
+Segments are read-only through the API for now: creating and updating them is coming soon (the
+API answers 501), so manage segments in the Bento app. `segments get` prints the segment's query
+formatted (the API stores it as a JSON string), and in `--json` output
+`.data.attributes.visitor_event_query` is an object. Tag rules in that query use the
+`cached_tag_ids` filter with tag **ids** as values.
 
 ### Images
 
@@ -308,7 +294,8 @@ bento images upload ./hero.png    # prints the hosted URL
 ```
 
 Accepts png, jpg/jpeg, gif, and webp up to 1MB (SVG is not allowed). Bento allows 20 image
-uploads per site per day.
+uploads per site per day, and only for approved accounts: until your account is approved the CLI
+exits 1 with a message saying so.
 
 ### Workflows
 
@@ -438,7 +425,7 @@ bento workflows get 42 --json            # read diagram_revision + node IDs
 bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
 ```
 
-File flags (`--html-file`, `--query-file`, `--patch-file`, `--out`, `images upload`) only accept
+File flags (`--html-file`, `--patch-file`, `--out`, `images upload`) only accept
 paths inside the current working directory.
 
 ## Output Modes

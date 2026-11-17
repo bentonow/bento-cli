@@ -186,9 +186,12 @@ domains.
 bento authors list                                          # IDs for --author-id
 bento segments list
 bento segments get 12 --json                                # .data.attributes.visitor_event_query (object)
-bento segments update 12 --description "VIPs who clicked" --query-file vip.json   # create it in the Bento app first
 bento images upload ./hero.png                              # png/jpg/gif/webp, max 1MB, 20/site/day
 ```
+
+Segments are read-only: creating and updating them through the API is coming soon (501), so
+tell the user to manage segments in the Bento app. Image uploads need an approved account (403
+otherwise).
 
 ### Sequences
 
@@ -385,7 +388,7 @@ bento workflows get 42 --json
 bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
 ```
 
-File flags (`--html-file`, `--query-file`, `--patch-file`, `--out`, `images upload`) only accept
+File flags (`--html-file`, `--patch-file`, `--out`, `images upload`) only accept
 paths inside the current working directory.
 
 ### CI/CD: Sync subscribers from database

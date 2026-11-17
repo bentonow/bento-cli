@@ -195,12 +195,6 @@ export type Segment = Resource<
   string
 >;
 
-export interface SegmentInput {
-  name?: string;
-  description?: string;
-  visitor_event_query?: SegmentQuery;
-}
-
 export interface ImageUploadInput {
   filename: string;
   /** Base64 encoded file contents. */

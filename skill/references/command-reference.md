@@ -526,37 +526,11 @@ bento segments get 12
 bento segments get 12 --json     # .data.attributes.visitor_event_query is parsed to an object
 ```
 
-### segments update
-
-```bash
-bento segments update 12 --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
-```
-
-Segments can't be created through the API yet (it answers 501). Create the segment in the
-Bento app, then edit it with `bento segments update <id>`.
-
-`--query-file` is a JSON QueryBuilder group:
-
-```json
-{ "condition": "AND", "rules": [
-  { "condition": "AND", "data": { "groupType": "visitor" }, "rules": [
-    { "id": "cached_tag_ids", "field": "cached_tag_ids", "type": "string", "operator": "contains", "value": "42" }
-  ] }
-] }
-```
-
-Tag rules use the `cached_tag_ids` filter with a tag **id** as the value, not the tag name. Every
-top-level rule or group needs `data.groupType` (`visitor` or `event`). The file may also be a
-saved `bento segments get <id> --json` output or a JSON string of the query; the CLI extracts the
-query. The API stores the query as a JSON string; the CLI parses it, so `segments get` prints it
-formatted and `--json` output has `.data.attributes.visitor_event_query` as an object.
-
-**Options**:
-| Option | Description |
-|--------|-------------|
-| `--name <name>` | Segment name |
-| `--description <text>` | Description |
-| `--query-file <path>` | QueryBuilder JSON or saved `segments get --json` output (validated by the API) |
+Segments are read-only through the API for now: creating and updating them is coming soon (the
+API answers 501), so manage segments in the Bento app. `segments get` prints the segment's query
+formatted (the API stores it as a JSON string), and in `--json` output
+`.data.attributes.visitor_event_query` is an object. Tag rules in that query use the
+`cached_tag_ids` filter with tag **ids** as values.
 
 ---
 
@@ -566,7 +540,7 @@ formatted and `--json` output has `.data.attributes.visitor_event_query` as an o
 
 Upload a png, jpg/jpeg, gif, or webp (max 1MB; SVG is not allowed) and print the hosted URL.
 Bento allows 20 uploads per site per day; past that the CLI exits 1 with a "try again tomorrow"
-message.
+message. Uploads need an approved account: until then Bento answers 403 and the CLI explains it.
 
 ```bash
 bento images upload ./hero.png
@@ -715,7 +689,7 @@ bento broadcasts update 456 --subject "$SUBJECT" --html-file draft.html     # ap
 bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
 ```
 
-File flags (`--html-file`, `--query-file`, `--patch-file`, `--out`, `images upload`) only accept
+File flags (`--html-file`, `--patch-file`, `--out`, `images upload`) only accept
 paths inside the current working directory.
 
 ---

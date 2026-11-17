@@ -27,7 +27,6 @@ import type {
   ImageUpload,
   ImageUploadInput,
   Segment,
-  SegmentInput,
   SubscriberActivity,
   SubscriberLookup,
   WorkflowDetail,
@@ -681,16 +680,6 @@ export class BentoClient {
   async getSegment(id: string): Promise<Segment> {
     const segment = await this.fetchData(() =>
       this.apiGet<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`)
-    );
-    return normalizeSegment(segment);
-  }
-
-  /** The API cannot create segments yet; they are created in the Bento app. */
-  async updateSegment(id: string, input: SegmentInput): Promise<Segment> {
-    const segment = await this.fetchData(() =>
-      this.apiPatch<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`, {
-        segment: input,
-      })
     );
     return normalizeSegment(segment);
   }

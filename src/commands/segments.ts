@@ -2,7 +2,7 @@ import type { Command } from "commander";
 
 import { output } from "../core/output";
 import { bento } from "../core/sdk";
-import type { Segment, SegmentInput, SegmentQuery } from "../types/agentic";
+import type { Segment } from "../types/agentic";
 import {
   emitJson,
   exitWithError,
@@ -10,17 +10,12 @@ import {
   parsePositiveInt,
   validationError,
 } from "../utils/command";
-import { readSafeJsonFile } from "../utils/files";
-import { extractSegmentQuery } from "../utils/segment-query";
-
-interface SegmentWriteOptions {
-  name?: string;
-  description?: string;
-  queryFile?: string;
-}
 
 export function registerSegmentsCommands(program: Command): void {
-  const segments = program.command("segments").description("Manage subscriber segments");
+  // Creating and updating segments through the API is coming soon (the API answers 501).
+  const segments = program
+    .command("segments")
+    .description("View subscriber segments (create and edit them in the Bento app)");
 
   segments
     .command("list")
@@ -77,66 +72,6 @@ export function registerSegmentsCommands(program: Command): void {
         exitWithError(error);
       }
     });
-
-  addWriteOptions(
-    segments
-      .command("update")
-      .description(
-        "Update a segment's name, description, or query. Create segments in the Bento app first; the API cannot create them yet."
-      )
-  )
-    .argument("<id>", "Segment ID")
-    .action(async (id: string, options: SegmentWriteOptions) => {
-      try {
-        const segmentId = requireId(id);
-        const input = await buildSegmentInput(options);
-        if (Object.keys(input).length === 0) {
-          throw validationError("Nothing to update. Pass --name, --description, or --query-file.");
-        }
-
-        output.startSpinner("Updating segment...");
-        const segment = await bento.updateSegment(segmentId, input);
-        output.stopSpinner("Segment updated");
-
-        if (output.isJson()) {
-          emitJson(segment);
-          return;
-        }
-        output.success(`Updated segment ${segment.id}: ${Object.keys(input).join(", ")}`);
-      } catch (error) {
-        exitWithError(error);
-      }
-    });
-}
-
-function addWriteOptions(command: Command): Command {
-  return command
-    .option("--name <name>", "Segment name")
-    .option("--description <text>", "Segment description")
-    .option(
-      "--query-file <path>",
-      "JSON file with the QueryBuilder group, or a saved 'segments get <id> --json' output"
-    );
-}
-
-async function buildSegmentInput(options: SegmentWriteOptions): Promise<SegmentInput> {
-  const input: SegmentInput = {};
-  if (options.name !== undefined) input.name = options.name.trim();
-  if (options.description !== undefined) input.description = options.description;
-  if (options.queryFile) {
-    input.visitor_event_query = parseQuery(await readSafeJsonFile(options.queryFile, "Query file"));
-  }
-  return input;
-}
-
-function parseQuery(value: unknown): SegmentQuery {
-  const query = extractSegmentQuery(value);
-  if (!query) {
-    throw validationError(
-      'Query file must hold a QueryBuilder group, e.g. {"condition":"AND","rules":[...]}, or saved \'segments get --json\' output.'
-    );
-  }
-  return query;
 }
 
 function requireId(id: string): string {

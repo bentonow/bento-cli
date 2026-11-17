@@ -316,13 +316,6 @@ describe("BentoClient HTTP helpers", () => {
       });
     });
 
-    it("updateSegment PATCHes the input wrapped in `segment`", async () => {
-      await client.updateSegment("12", { description: "d" });
-      expect(lastRequest().method).toBe("PATCH");
-      expect(lastRequest().url.pathname).toBe("/api/v1/fetch/segments/12");
-      expect(lastRequest().body).toEqual({ site_uuid: "site-123", segment: { description: "d" } });
-    });
-
     it("uploadImage posts base64 JSON", async () => {
       await client.uploadImage({ filename: "hero.png", data: "aGk=" });
       expect(lastRequest().url.pathname).toBe("/api/v1/fetch/uploads/images");

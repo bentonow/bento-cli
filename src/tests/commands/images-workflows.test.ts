@@ -3,6 +3,7 @@ import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import {
+  ACCOUNT_NOT_APPROVED_MESSAGE,
   DAILY_UPLOAD_LIMIT_MESSAGE,
   MAX_IMAGE_BYTES,
   registerImagesCommands,
@@ -119,6 +120,24 @@ describe("bento images upload", () => {
     expect(code).toBe(1);
     expect(harness.stderr()).toContain("Image file must be 1MB or smaller");
     expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it("explains the 403 for accounts that are not approved yet", async () => {
+    const file = tempPath("hero.png");
+    await writeFile(file, "hi");
+    uploadSpy.mockRejectedValue(
+      new CLIError(
+        "Access denied: Image uploads are available once your account is approved",
+        "AUTH_FAILED",
+        403
+      )
+    );
+
+    harness = createHarness(registerImagesCommands);
+    const code = await harness.run(["images", "upload", file]);
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain(ACCOUNT_NOT_APPROVED_MESSAGE);
   });
 
   it("shows a friendly message when the daily upload limit is hit", async () => {

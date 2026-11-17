@@ -17,33 +17,6 @@ export function normalizeSegment(segment: Segment): Segment {
   }
 }
 
-/**
- * Find the QueryBuilder group in whatever a user saved: the bare query, a JSON string of it,
- * the segment's attributes, the resource, the raw API response, or `segments get --json` output.
- * Returns null when no group with a `rules` array is found.
- */
-export function extractSegmentQuery(value: unknown, depth = 0): SegmentQuery | null {
-  if (depth > 5) return null;
-  if (typeof value === "string") {
-    try {
-      return extractSegmentQuery(JSON.parse(value), depth + 1);
-    } catch {
-      return null;
-    }
-  }
-  if (isQuery(value)) return value;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-
-  const record = value as Record<string, unknown>;
-  for (const key of ["visitor_event_query", "attributes", "data"]) {
-    if (key in record) {
-      const found = extractSegmentQuery(record[key], depth + 1);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 function isQuery(value: unknown): value is SegmentQuery {
   return (
     Boolean(value) &&
