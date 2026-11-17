@@ -155,6 +155,14 @@ stored or passed as `--send-at` in the same command, and its prompt shows when i
 `update --type plain|raw` can be sent alone; `--batch-size` is 10 to 500000. `--approve` prompts
 unless `--confirm` or `BENTO_AUTO_CONFIRM=true`. Never approve without an explicit request.
 
+**Tags decide who receives the email; get them right.** `--include-tags` requires ALL listed tags
+(not any); `--exclude-tags` drops anyone with ANY; both AND with the segment. Names are exact and
+case-sensitive, and Bento creates unknown names as empty tags, so a typo in `--include-tags`
+matches nobody and a typo in `--exclude-tags` excludes nobody. Max 20 names per flag, 100 chars
+each. The CLI checks names against `bento tags list` and exits 1 on unknown names unless
+`--confirm`. Run `bento tags list --json` first and copy names exactly; do not pass `--confirm`
+to get past an unknown-tag error unless the user asked for a new tag.
+
 ### Emails (render and test)
 
 ```bash

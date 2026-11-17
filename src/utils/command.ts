@@ -14,6 +14,13 @@ export function exitWithError(error: unknown): never {
   process.exit(1);
 }
 
+/** Mirrors Safety: `BENTO_AUTO_CONFIRM=true|1|yes|on` counts as --confirm. */
+export function autoConfirmEnabled(): boolean {
+  const { BENTO_AUTO_CONFIRM: raw } = process.env;
+  const value = raw?.trim().toLowerCase();
+  return value !== undefined && ["1", "true", "yes", "on"].includes(value);
+}
+
 export function emitJson<T>(data: T, meta: CLIResponse<T>["meta"] = { count: 1 }): void {
   output.json({ success: true, error: null, data, meta });
 }

@@ -400,10 +400,25 @@ bento broadcasts create \
 | `--author-id <id>` | Sender author ID from `bento authors list` |
 | `--preview-text <text>` | Inbox preview text |
 | `--segment-id <id>` | Segment to target |
-| `--include-tags <tags>` | Comma-separated tags to include (sent as an array) |
-| `--exclude-tags <tags>` | Comma-separated tags to exclude (sent as an array) |
+| `--include-tags <tags>` | Comma-separated tag names; recipients must have ALL of them (max 20, exact, case-sensitive) |
+| `--exclude-tags <tags>` | Comma-separated tag names; anyone with ANY of them is excluded (max 20, exact, case-sensitive) |
 | `--send-at <iso>` | Schedule time (ISO 8601, must be in the future) |
 | `--batch-size <n>` | Emails per hour, 10-500000 (default 1000) |
+| `--confirm` | Proceed even if a tag name doesn't exist yet |
+
+**Tag targeting** (check before you send).
+
+- `--include-tags a,b` sends only to subscribers who have **all** of the listed tags, not any.
+- `--exclude-tags a,b` drops anyone who has **any** of the listed tags.
+- Tags combine with the segment (`--segment-id`) using AND.
+- Names are exact and case-sensitive. Bento **creates unknown names as new, empty tags**: a typo in
+  `--include-tags` matches nobody, and a typo in `--exclude-tags` excludes nobody.
+- At most 20 names per flag and 100 characters per name. The CLI refuses more (Bento would silently
+  ignore the extras).
+- Before sending, the CLI checks every name against `bento tags list`. If any name doesn't exist
+  yet, it prints why and exits 1 (in `--json` mode: `success: false` with the details in `error`).
+  Re-run with `--confirm` (or `BENTO_AUTO_CONFIRM=true`) only if you really mean to use a new tag;
+  the warnings are then printed, and in `--json` mode returned in `meta.warnings`.
 
 ### broadcasts update
 
@@ -432,11 +447,11 @@ passed". The confirmation prompt shows the time the broadcast will go out at.
 | `--preview-text <text>` | Inbox preview text |
 | `--author-id <id>` | Sender author ID |
 | `--segment-id <id>` | Segment ID, or `none` to clear |
-| `--include-tags <tags>` / `--exclude-tags <tags>` | Comma-separated; `""` clears |
+| `--include-tags <tags>` / `--exclude-tags <tags>` | Same rules as create (ALL / ANY, exact names, max 20); `""` clears |
 | `--send-at <iso>` | Schedule time (ISO 8601, must be in the future) |
 | `--batch-size <n>` | Emails per hour, 10-500000 |
 | `--approve` / `--unapprove` | Approve for sending at the future send time (prompts) or revoke approval |
-| `--confirm` | Skip the approval prompt |
+| `--confirm` | Skip the approval prompt and accept tag names that don't exist yet |
 
 ---
 

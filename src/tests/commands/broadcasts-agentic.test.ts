@@ -37,6 +37,21 @@ const detail: BroadcastDetail = {
 
 const STORED_SEND_AT = "2099-12-01T09:00:00.000Z";
 
+function makeTag(name: string) {
+  return { id: name, type: "tag", attributes: { name, created_at: "", discarded_at: null } };
+}
+
+let tagsSpy: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  tagsSpy = spyOn(bento, "getTags").mockResolvedValue(
+    ["vip", "beta", "churned", "VIP Customers"].map(makeTag) as never
+  );
+});
+afterEach(() => {
+  tagsSpy.mockRestore();
+  Reflect.deleteProperty(process.env, "BENTO_AUTO_CONFIRM");
+});
+
 describe("bento broadcasts get", () => {
   let harness: Harness;
   let getSpy: ReturnType<typeof spyOn>;
@@ -463,5 +478,140 @@ describe("bento broadcasts create (new flags)", () => {
     expect(code).toBe(1);
     expect(harness.stderr()).toContain("--segment-id must be a positive integer");
     expect(createSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("broadcast tag safety", () => {
+  let harness: Harness;
+  let createSpy: ReturnType<typeof spyOn>;
+  let updateSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    createSpy = spyOn(bento, "createBroadcast").mockResolvedValue({
+      results: 1,
+      broadcasts: [{ id: 1, name: "N" }],
+      failed: 0,
+      failures: [],
+    });
+    updateSpy = spyOn(bento, "updateBroadcast").mockResolvedValue(detail);
+  });
+
+  afterEach(() => {
+    harness.restore();
+    createSpy.mockRestore();
+    updateSpy.mockRestore();
+  });
+
+  const create = (...args: string[]) => [
+    "broadcasts",
+    "create",
+    "--name",
+    "N",
+    "--subject",
+    "S",
+    ...args,
+  ];
+
+  it("passes known tags without looking twice or warning", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(create("--include-tags", "vip", "--exclude-tags", "churned"));
+
+    expect(code).toBe(0);
+    expect(tagsSpy).toHaveBeenCalledTimes(1);
+    expect(harness.stderr()).not.toContain("doesn't exist yet");
+  });
+
+  it("skips the tag lookup when no tags are given", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    await harness.run(create());
+    expect(tagsSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts on an unknown exclude tag without --confirm", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(create("--exclude-tags", "chruned"));
+
+    expect(code).toBe(1);
+    const err = harness.stderr();
+    expect(err).toContain('--exclude-tags "chruned" doesn\'t exist yet');
+    expect(err).toContain("so it will exclude nobody");
+    expect(err).toContain("re-run with --confirm");
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it("aborts on an unknown include tag and suggests the case-insensitive match", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(["broadcasts", "update", "456", "--include-tags", "VIP"]);
+
+    expect(code).toBe(1);
+    const err = harness.stderr();
+    expect(err).toContain('"VIP" (did you mean "vip"? names are case-sensitive)');
+    expect(err).toContain("the broadcast will match nobody");
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns a JSON error for unknown tags unless --confirm", async () => {
+    harness = createHarness(registerBroadcastsCommands, "json");
+    const code = await harness.run(create("--include-tags", "vip,newcomers"));
+
+    expect(code).toBe(1);
+    const payload = harness.json();
+    expect(payload.success).toBe(false);
+    expect(payload.error).toContain('--include-tags "newcomers" doesn\'t exist yet');
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with --confirm and reports the warnings", async () => {
+    harness = createHarness(registerBroadcastsCommands, "json");
+    const code = await harness.run(create("--exclude-tags", "chruned", "--confirm"));
+
+    expect(code).toBe(0);
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ exclusive_tags: ["chruned"] })
+    );
+    const meta = harness.json().meta as { warnings?: string[] };
+    expect(meta.warnings?.[0]).toContain("will exclude nobody");
+  });
+
+  it("proceeds with BENTO_AUTO_CONFIRM and warns in human output", async () => {
+    Object.assign(process.env, { BENTO_AUTO_CONFIRM: "true" });
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(["broadcasts", "update", "456", "--exclude-tags", "chruned"]);
+
+    expect(code).toBe(0);
+    expect(updateSpy).toHaveBeenCalledWith("456", { exclusive_tags: ["chruned"] });
+    expect(harness.stderr()).toContain("will exclude nobody");
+  });
+
+  it("does not look up tags when clearing with ''", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    await harness.run(["broadcasts", "update", "456", "--exclude-tags", ""]);
+    expect(tagsSpy).not.toHaveBeenCalled();
+    expect(updateSpy).toHaveBeenCalledWith("456", { exclusive_tags: [] });
+  });
+
+  it("rejects more than 20 tags per flag", async () => {
+    const many = Array.from({ length: 21 }, (_, i) => `t${i}`).join(",");
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(create("--include-tags", many));
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("--include-tags accepts at most 20 tag names (got 21)");
+    expect(tagsSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects tag names over 100 characters", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run([
+      "broadcasts",
+      "update",
+      "456",
+      "--exclude-tags",
+      "x".repeat(101),
+    ]);
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("--exclude-tags tag names must be 100 characters or fewer");
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 });

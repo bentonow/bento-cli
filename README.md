@@ -224,10 +224,24 @@ so the API refuses them with 409, like sending, sent, and canceled ones. `--send
 future (checked before the request). `--approve` refuses a broadcast whose send time is missing or
 has passed; pass a future `--send-at` in the same command.
 
-`--include-tags` / `--exclude-tags` are sent as arrays. `--type plain|raw` picks the editor and can be
+`--type plain|raw` picks the editor and can be
 sent on its own; replacing the body of a visual-editor broadcast needs `--type`. `--batch-size`
 is 10 to 500000. On create, `--type html` and `markdown` use the raw editor, and `--from-email`
 and `--author-id` are mutually exclusive.
+
+#### Tag targeting (check before you send)
+
+- `--include-tags a,b` sends only to subscribers who have **all** of the listed tags, not any.
+- `--exclude-tags a,b` drops anyone who has **any** of the listed tags.
+- Tags combine with the segment (`--segment-id`) using AND.
+- Names are exact and case-sensitive. Bento **creates unknown names as new, empty tags**: a typo in
+  `--include-tags` matches nobody, and a typo in `--exclude-tags` excludes nobody.
+- At most 20 names per flag and 100 characters per name. The CLI refuses more (Bento would silently
+  ignore the extras).
+- Before sending, the CLI checks every name against `bento tags list`. If any name doesn't exist
+  yet, it prints why and exits 1 (in `--json` mode: `success: false` with the details in `error`).
+  Re-run with `--confirm` (or `BENTO_AUTO_CONFIRM=true`) only if you really mean to use a new tag;
+  the warnings are then printed, and in `--json` mode returned in `meta.warnings`.
 
 ### Emails (render and test)
 

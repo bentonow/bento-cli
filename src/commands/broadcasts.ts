@@ -16,6 +16,7 @@ import { CLIError, bento } from "../core/sdk";
 import type { BroadcastCreate, BroadcastDetail, BroadcastUpdate } from "../types/agentic";
 import type { Broadcast, BroadcastType } from "../types/sdk";
 import {
+  autoConfirmEnabled,
   emitJson,
   exitWithError,
   formatTimestamp,
@@ -45,6 +46,7 @@ interface CreateOptions {
   authorId?: string;
   segmentId?: string;
   sendAt?: string;
+  confirm?: boolean;
 }
 
 interface UpdateOptions {
@@ -66,6 +68,12 @@ interface UpdateOptions {
 
 const MAX_HTML_BYTES = 524_288;
 const UPDATE_CONTENT_TYPES = ["plain", "raw"] as const;
+const MAX_TAGS_PER_FIELD = 20;
+const MAX_TAG_NAME_LENGTH = 100;
+const INCLUDE_TAGS_HELP =
+  "Comma-separated tag names; recipients must have ALL of them (exact, case-sensitive, max 20)";
+const EXCLUDE_TAGS_HELP =
+  "Comma-separated tag names; anyone with ANY of them is excluded (exact, case-sensitive, max 20)";
 const MIN_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 500_000;
 
@@ -249,13 +257,14 @@ export function registerBroadcastsCommands(program: Command): void {
     )
     .option("--from-name <name>", "Sender name")
     .option("--from-email <email>", "Sender email address")
-    .option("--include-tags <tags>", "Comma-separated tags to include")
-    .option("--exclude-tags <tags>", "Comma-separated tags to exclude")
+    .option("--include-tags <tags>", INCLUDE_TAGS_HELP)
+    .option("--exclude-tags <tags>", EXCLUDE_TAGS_HELP)
     .option("--batch-size <size>", "Emails to send per hour", "1000")
     .option("--preview-text <text>", "Inbox preview text")
     .option("--author-id <id>", "Sender author ID from 'bento authors list'")
     .option("--segment-id <id>", "Segment ID to target")
     .option("--send-at <iso>", "Schedule time (ISO 8601, must be in the future)")
+    .option("--confirm", "Proceed even if a tag name doesn't exist yet (it will be created empty)")
     .action(async (options: CreateOptions) => {
       try {
         // Validate type
@@ -292,14 +301,24 @@ export function registerBroadcastsCommands(program: Command): void {
         if (options.fromName || options.fromEmail || options.authorId === undefined) {
           input.from = { name: options.fromName || "", email: options.fromEmail || "" };
         }
-        if (options.includeTags) input.inclusive_tags = parseCsvList(options.includeTags);
-        if (options.excludeTags) input.exclusive_tags = parseCsvList(options.excludeTags);
+        if (options.includeTags) {
+          input.inclusive_tags = parseTagList(options.includeTags, "--include-tags");
+        }
+        if (options.excludeTags) {
+          input.exclusive_tags = parseTagList(options.excludeTags, "--exclude-tags");
+        }
         if (options.previewText !== undefined) input.preview_text = options.previewText;
         const authorId = parsePositiveInt(options.authorId, "--author-id");
         if (authorId !== undefined) input.author_id = authorId;
         const segmentId = parsePositiveInt(options.segmentId, "--segment-id");
         if (segmentId !== undefined) input.segment_id = segmentId;
         if (options.sendAt) input.send_at = parseFutureTimestamp(options.sendAt, "--send-at");
+
+        const tagWarnings = await checkTagNames(
+          input.inclusive_tags,
+          input.exclusive_tags,
+          Boolean(options.confirm)
+        );
 
         output.startSpinner("Creating broadcast...");
 
@@ -323,7 +342,11 @@ export function registerBroadcastsCommands(program: Command): void {
             success: result.results > 0,
             error: null,
             data: result,
-            meta: { count: result.results, failed: result.failed },
+            meta: {
+              count: result.results,
+              failed: result.failed,
+              ...(tagWarnings.length ? { warnings: tagWarnings } : {}),
+            },
           });
         } else if (!output.isQuiet()) {
           const createdName = result.broadcasts[0]?.name ?? options.name;
@@ -379,8 +402,8 @@ export function registerBroadcastsCommands(program: Command): void {
     .option("--preview-text <text>", "Inbox preview text")
     .option("--author-id <id>", "Sender author ID from 'bento authors list'")
     .option("--segment-id <id>", "Segment ID to target ('none' clears it)")
-    .option("--include-tags <tags>", "Comma-separated tags to include ('' clears)")
-    .option("--exclude-tags <tags>", "Comma-separated tags to exclude ('' clears)")
+    .option("--include-tags <tags>", `${INCLUDE_TAGS_HELP}; '' clears`)
+    .option("--exclude-tags <tags>", `${EXCLUDE_TAGS_HELP}; '' clears`)
     .option("--send-at <iso>", "Schedule time (ISO 8601, must be in the future)")
     .option("--batch-size <size>", "Emails to send per hour")
     .option(
@@ -388,11 +411,19 @@ export function registerBroadcastsCommands(program: Command): void {
       "Approve for sending at its future send time, or --send-at (asks for confirmation)"
     )
     .option("--unapprove", "Revoke approval")
-    .option("--confirm", "Skip the approval confirmation prompt")
+    .option(
+      "--confirm",
+      "Skip the approval prompt and proceed even if a tag name doesn't exist yet"
+    )
     .action(async (id: string, options: UpdateOptions) => {
       try {
         const broadcastId = requireId(id);
         const changes = await buildBroadcastUpdate(options);
+        const tagWarnings = await checkTagNames(
+          changes.inclusive_tags,
+          changes.exclusive_tags,
+          Boolean(options.confirm)
+        );
 
         if (changes.approved === true) {
           const sendAt = await resolveApprovalSendTime(broadcastId, changes.send_at);
@@ -416,7 +447,11 @@ export function registerBroadcastsCommands(program: Command): void {
         output.stopSpinner("Broadcast updated");
 
         if (output.isJson()) {
-          emitJson(broadcast, { count: 1, updatedFields: Object.keys(changes) });
+          emitJson(broadcast, {
+            count: 1,
+            updatedFields: Object.keys(changes),
+            ...(tagWarnings.length ? { warnings: tagWarnings } : {}),
+          });
           return;
         }
         if (!output.isQuiet()) {
@@ -456,8 +491,12 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
         ? null
         : (parsePositiveInt(options.segmentId, "--segment-id") as number);
   }
-  if (options.includeTags !== undefined) changes.inclusive_tags = parseCsvList(options.includeTags);
-  if (options.excludeTags !== undefined) changes.exclusive_tags = parseCsvList(options.excludeTags);
+  if (options.includeTags !== undefined) {
+    changes.inclusive_tags = parseTagList(options.includeTags, "--include-tags");
+  }
+  if (options.excludeTags !== undefined) {
+    changes.exclusive_tags = parseTagList(options.excludeTags, "--exclude-tags");
+  }
   if (options.sendAt !== undefined) {
     changes.send_at = parseFutureTimestamp(options.sendAt, "--send-at");
   }
@@ -470,6 +509,75 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
     throw validationError("Nothing to update. Pass at least one field flag (see --help).");
   }
   return changes;
+}
+
+/**
+ * Bento uses only the first 20 names per field and truncates names at 100 characters, silently.
+ * Refuse instead, so the audience is exactly what was typed.
+ */
+function parseTagList(value: string, flag: string): string[] {
+  const names = [...new Set(parseCsvList(value))];
+  if (names.length > MAX_TAGS_PER_FIELD) {
+    throw validationError(
+      `${flag} accepts at most ${MAX_TAGS_PER_FIELD} tag names (got ${names.length}). Bento ignores the rest.`
+    );
+  }
+  const tooLong = names.filter((name) => name.length > MAX_TAG_NAME_LENGTH);
+  if (tooLong.length > 0) {
+    throw validationError(
+      `${flag} tag names must be ${MAX_TAG_NAME_LENGTH} characters or fewer: ${tooLong.map((name) => `"${name.slice(0, 30)}…"`).join(", ")}`
+    );
+  }
+  return names;
+}
+
+/**
+ * Bento matches tag names exactly and creates unknown names as new, empty tags. An unknown
+ * include tag therefore matches nobody (recipients need ALL include tags) and an unknown exclude
+ * tag excludes nobody. Both send to the wrong audience, so they need --confirm.
+ * Returns the warnings to report when the caller confirmed.
+ */
+async function checkTagNames(
+  include: string[] | undefined,
+  exclude: string[] | undefined,
+  confirm: boolean
+): Promise<string[]> {
+  if (!include?.length && !exclude?.length) return [];
+
+  const existing = ((await bento.getTags()) ?? [])
+    .map((tag) => tag.attributes.name ?? "")
+    .filter(Boolean);
+  const known = new Set(existing);
+  const describe = (name: string) => {
+    const nearMatch = existing.find((tag) => tag.toLowerCase() === name.toLowerCase());
+    return nearMatch
+      ? `"${name}" (did you mean "${nearMatch}"? names are case-sensitive)`
+      : `"${name}"`;
+  };
+
+  const warnings = [
+    ...(include ?? [])
+      .filter((name) => !known.has(name))
+      .map(
+        (name) =>
+          `--include-tags ${describe(name)} doesn't exist yet. Bento will create it as an empty tag, so the broadcast will match nobody.`
+      ),
+    ...(exclude ?? [])
+      .filter((name) => !known.has(name))
+      .map(
+        (name) =>
+          `--exclude-tags ${describe(name)} doesn't exist yet. Bento will create it as an empty tag, so it will exclude nobody.`
+      ),
+  ];
+  if (warnings.length === 0) return [];
+
+  if (!confirm && !autoConfirmEnabled()) {
+    throw validationError(
+      `Unknown tag names (exact, case-sensitive):\n  - ${warnings.join("\n  - ")}\nCheck 'bento tags list' and fix the names, or re-run with --confirm to proceed anyway.`
+    );
+  }
+  for (const warning of warnings) output.warn(warning);
+  return warnings;
 }
 
 /**
