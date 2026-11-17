@@ -6,8 +6,6 @@
  * - bento sequences create-email - Create an email template in a sequence
  */
 
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { Command } from "commander";
 import { output } from "../core/output";
 import { CLIError, bento } from "../core/sdk";
@@ -16,6 +14,7 @@ import type {
   SequenceDelayInterval,
   UpdateSequenceEmailInput,
 } from "../types/sdk";
+import { readSafeTextFile } from "../utils/files";
 import { getSequenceId } from "../utils/sequence-identity";
 
 interface CreateEmailOptions {
@@ -38,6 +37,8 @@ interface UpdateEmailOptions {
   subject?: string;
   html?: string;
   htmlFile?: string;
+  inboxSnippet?: string;
+  previewText?: string;
 }
 
 const ALLOWED_DELAY_INTERVALS: SequenceDelayInterval[] = ["minutes", "hours", "days", "months"];
@@ -161,21 +162,33 @@ export function registerSequencesCommands(program: Command): void {
     .option("--subject <subject>", "New email subject line")
     .option("--html <html>", "New email HTML content")
     .option("--html-file <path>", "Path to an HTML file")
+    .option("--inbox-snippet <text>", "Inbox preview/snippet text")
+    .option("--preview-text <text>", "Alias for --inbox-snippet")
     .action(async (options: UpdateEmailOptions) => {
       try {
         const html = await resolveOptionalHtmlInput(options.html, options.htmlFile);
-        if (!options.subject && !html) {
+        if (
+          options.inboxSnippet !== undefined &&
+          options.previewText !== undefined &&
+          options.inboxSnippet !== options.previewText
+        ) {
           throw new CLIError(
-            "At least one of --subject, --html, or --html-file must be provided.",
+            "Provide only one of --inbox-snippet or --preview-text.",
+            "VALIDATION_ERROR",
+            422
+          );
+        }
+        const inboxSnippet = options.inboxSnippet ?? options.previewText;
+        if (!options.subject && !html && inboxSnippet === undefined) {
+          throw new CLIError(
+            "At least one of --subject, --html, --html-file, or --inbox-snippet must be provided.",
             "VALIDATION_ERROR",
             422
           );
         }
 
-        const input: UpdateSequenceEmailInput = {
-          subject: options.subject,
-          html,
-        };
+        const input: UpdateSequenceEmailInput = { subject: options.subject, html };
+        if (inboxSnippet !== undefined) input.inboxSnippet = inboxSnippet;
 
         output.startSpinner("Updating sequence email...");
         const result = await bento.updateSequenceEmail(options.templateId, input);
@@ -212,27 +225,7 @@ async function resolveHtmlInput(html?: string, htmlFile?: string): Promise<strin
     return html;
   }
 
-  try {
-    const safePath = resolveSafeHtmlPath(htmlFile as string);
-    const content = await readFile(safePath, "utf8");
-    validateHtmlSize(content);
-    return content;
-  } catch (error) {
-    if (error instanceof Error && "code" in error) {
-      const code = String(error.code);
-      if (code === "ENOENT") {
-        throw new CLIError(`HTML file not found: ${htmlFile}`, "VALIDATION_ERROR", 422);
-      }
-      if (code === "EACCES") {
-        throw new CLIError(
-          `Cannot read HTML file (permission denied): ${htmlFile}`,
-          "VALIDATION_ERROR",
-          422
-        );
-      }
-    }
-    throw new CLIError(`Unable to read HTML file: ${htmlFile}`, "VALIDATION_ERROR", 422);
-  }
+  return readSafeTextFile(htmlFile as string, "HTML file", MAX_TEMPLATE_HTML_BYTES);
 }
 
 async function resolveOptionalHtmlInput(
@@ -283,23 +276,6 @@ function validateHtmlSize(html: string): void {
       422
     );
   }
-}
-
-function resolveSafeHtmlPath(inputPath: string): string {
-  const resolvedPath = path.resolve(inputPath);
-  const projectRoot = process.cwd();
-  const relativePath = path.relative(projectRoot, resolvedPath);
-  const isOutsideProject = relativePath.startsWith("..") || path.isAbsolute(relativePath);
-
-  if (isOutsideProject) {
-    throw new CLIError(
-      "HTML file path must be within the current working directory.",
-      "VALIDATION_ERROR",
-      422
-    );
-  }
-
-  return resolvedPath;
 }
 
 function formatDate(isoDate: string): string {
