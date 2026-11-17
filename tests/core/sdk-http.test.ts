@@ -292,7 +292,9 @@ describe("BentoClient HTTP helpers", () => {
     });
 
     it("proposeWorkflowChange wraps the proposal", async () => {
-      const patch = { add_nodes: [{ id: "n1", type: "delay", data: {} }] };
+      const patch = {
+        add_nodes: [{ id: "n1", type: "delay", config: {}, insert_after: "trigger" }],
+      };
       await client.proposeWorkflowChange("w1", { summary: "Add wait", patch, base_revision: "r1" });
       expect(lastRequest().url.pathname).toBe("/api/v1/fetch/workflows/w1/proposals");
       expect(lastRequest().body).toEqual({

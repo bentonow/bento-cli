@@ -528,7 +528,9 @@ bento segments update 12 --query-file vip.json
 
 ### images upload
 
-Upload a png, jpg, gif, webp, or svg (max 10MB) and print the hosted URL.
+Upload a png, jpg/jpeg, gif, or webp (max 1MB; SVG is not allowed) and print the hosted URL.
+Bento allows 20 uploads per site per day; past that the CLI exits 1 with a "try again tomorrow"
+message.
 
 ```bash
 bento images upload ./hero.png
@@ -618,9 +620,33 @@ Prints the proposal status and review URL. Proposals expire after 7 days.
 **Options**:
 | Option | Description |
 |--------|-------------|
-| `--patch-file <path>` | JSON patch (`add_nodes`, `update_nodes`, `remove_nodes`, `move_nodes`, `add_links`, `remove_links`, `update_links`), validated by the API (required) |
+| `--patch-file <path>` | JSON patch (`add_nodes`, `update_nodes`, `remove_nodes`, `add_links`, `remove_links`), validated by the API (required) |
 | `--summary <text>` | Description shown to the reviewer (required) |
 | `--base-revision <rev>` | `diagram_revision` from `workflows get`; marks the proposal stale if the flow changes |
+
+**Patch format** (same as Tanuki):
+
+```json
+{
+  "add_nodes": [
+    { "id": "wait_2d", "type": "delay", "config": { "delay_interval_count": 2, "delay_interval": "days" }, "insert_after": "trigger_1" },
+    { "id": "yes_email", "type": "email", "config": { "subject": "Welcome aboard" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
+  ],
+  "update_nodes": [ { "id": "email_3", "config": { "subject": "New subject" } } ],
+  "remove_nodes": [ "old_tag_1" ],
+  "add_links": [ { "from": "wait_2d", "to": "email_3" } ],
+  "remove_links": [ { "from": "split_1", "fromPort": "bottom_1" } ]
+}
+```
+
+- `add_nodes` items need `id`, `type`, and `config`. Connect each non-trigger node with
+  `insert_after` (an existing node ID, or a new node that chains back to one) or `insert_before`.
+  For split nodes, `insert_after_port` is `bottom_0` (true) or `bottom_1` (false). Delay nodes need
+  `delay_interval_count` and `delay_interval` in `config`.
+- `update_nodes` items are `{ id, config }`, and `config` holds only the keys you are changing.
+- `remove_nodes` is a list of existing node IDs. Links reconnect automatically.
+- `add_links` items are `{ from, to, fromPort? }`. `remove_links` items are `{ from, fromPort?, to? }`.
+- Get node IDs from `bento workflows get <id> --json`.
 
 ### workflows proposals
 

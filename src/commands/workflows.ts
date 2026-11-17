@@ -97,7 +97,7 @@ export function registerWorkflowsCommands(program: Command): void {
     .argument("<id>", "Workflow ID")
     .requiredOption(
       "--patch-file <path>",
-      "JSON file with the patch (add_nodes, update_nodes, ...)"
+      "JSON patch: add_nodes, update_nodes, remove_nodes, add_links, remove_links"
     )
     .requiredOption("--summary <text>", "One-line description of the change for the reviewer")
     .option(

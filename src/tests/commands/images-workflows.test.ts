@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtemp, rm, truncate, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
-import { MAX_IMAGE_BYTES, registerImagesCommands } from "../../commands/images";
+import {
+  DAILY_UPLOAD_LIMIT_MESSAGE,
+  MAX_IMAGE_BYTES,
+  registerImagesCommands,
+} from "../../commands/images";
 import { registerWorkflowsCommands } from "../../commands/workflows";
 import { CLIError, bento } from "../../core/sdk";
 import type { ImageUpload, WorkflowDetail, WorkflowProposal } from "../../types/agentic";
@@ -89,7 +93,20 @@ describe("bento images upload", () => {
     expect(harness.json<ImageUpload>().data.attributes.url).toBe("https://cdn.bento/hero.png");
   });
 
-  it("rejects files over 10MB before uploading", async () => {
+  it("accepts a file of exactly 1MB", async () => {
+    const file = tempPath("exact.png");
+    await writeFile(file, "");
+    await truncate(file, MAX_IMAGE_BYTES);
+
+    harness = createHarness(registerImagesCommands);
+    const code = await harness.run(["images", "upload", file]);
+
+    expect(MAX_IMAGE_BYTES).toBe(1_048_576);
+    expect(code).toBe(0);
+    expect(uploadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects 1MB + 1 byte before uploading", async () => {
     const file = tempPath("huge.png");
     await writeFile(file, "");
     await truncate(file, MAX_IMAGE_BYTES + 1);
@@ -98,15 +115,30 @@ describe("bento images upload", () => {
     const code = await harness.run(["images", "upload", file]);
 
     expect(code).toBe(1);
-    expect(harness.stderr()).toContain(`Image file must be under ${MAX_IMAGE_BYTES} bytes`);
+    expect(harness.stderr()).toContain("Image file must be 1MB or smaller");
     expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows a friendly message when the daily upload limit is hit", async () => {
+    const file = tempPath("hero.png");
+    await writeFile(file, "hi");
+    uploadSpy.mockRejectedValue(
+      new CLIError("Rate limited: Daily image upload limit reached", "RATE_LIMITED", 429)
+    );
+
+    harness = createHarness(registerImagesCommands, "json");
+    const code = await harness.run(["images", "upload", file]);
+
+    expect(code).toBe(1);
+    expect(harness.json().error).toBe(DAILY_UPLOAD_LIMIT_MESSAGE);
   });
 
   it.each([
     ["notes.txt", "Unsupported image type"],
+    ["logo.svg", "Unsupported image type"],
     ["missing.png", "Image file not found"],
   ])("rejects %p", async (name, message) => {
-    if (name.endsWith(".txt")) await writeFile(tempPath(name), "x");
+    if (!name.startsWith("missing")) await writeFile(tempPath(name), "x");
     harness = createHarness(registerImagesCommands);
     const code = await harness.run(["images", "upload", tempPath(name)]);
 
@@ -165,7 +197,16 @@ describe("bento workflows", () => {
   });
 
   it("proposes a change and points at the Flow Builder", async () => {
-    const patch = { add_nodes: [{ id: "n_new1", type: "delay", data: {} }] };
+    const patch = {
+      add_nodes: [
+        {
+          id: "n_new1",
+          type: "delay",
+          config: { delay_interval_count: 2, delay_interval: "days" },
+          insert_after: "n_trigger",
+        },
+      ],
+    };
     const file = tempPath("patch.json");
     await writeFile(file, JSON.stringify(patch));
 

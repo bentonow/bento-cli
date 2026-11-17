@@ -174,7 +174,7 @@ bento segments list
 bento segments get 12 --json                                # includes visitor_event_query
 bento segments create --name "Engaged VIPs" --query-file vip.json
 bento segments update 12 --description "VIPs who clicked"
-bento images upload ./hero.png                              # prints hosted URL (max 10MB)
+bento images upload ./hero.png                              # png/jpg/gif/webp, max 1MB, 20/site/day
 ```
 
 ### Sequences
@@ -193,6 +193,30 @@ bento workflows get 42 --json                               # diagram_revision +
 bento workflows propose 42 --patch-file patch.json --summary "Add 2-day wait" --base-revision abc123
 bento workflows proposals 42
 ```
+
+Patch format (same as Tanuki):
+
+```json
+{
+  "add_nodes": [
+    { "id": "wait_2d", "type": "delay", "config": { "delay_interval_count": 2, "delay_interval": "days" }, "insert_after": "trigger_1" },
+    { "id": "yes_email", "type": "email", "config": { "subject": "Welcome aboard" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
+  ],
+  "update_nodes": [ { "id": "email_3", "config": { "subject": "New subject" } } ],
+  "remove_nodes": [ "old_tag_1" ],
+  "add_links": [ { "from": "wait_2d", "to": "email_3" } ],
+  "remove_links": [ { "from": "split_1", "fromPort": "bottom_1" } ]
+}
+```
+
+- `add_nodes` items need `id`, `type`, and `config`. Connect each non-trigger node with
+  `insert_after` (an existing node ID, or a new node that chains back to one) or `insert_before`.
+  For split nodes, `insert_after_port` is `bottom_0` (true) or `bottom_1` (false). Delay nodes need
+  `delay_interval_count` and `delay_interval` in `config`.
+- `update_nodes` items are `{ id, config }`, and `config` holds only the keys you are changing.
+- `remove_nodes` is a list of existing node IDs. Links reconnect automatically.
+- `add_links` items are `{ from, to, fromPort? }`. `remove_links` items are `{ from, fromPort?, to? }`.
+- Get node IDs from `bento workflows get <id> --json`.
 
 `propose` never changes a flow. It returns a review URL; a human accepts it in the Flow Builder.
 

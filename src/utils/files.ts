@@ -41,7 +41,11 @@ export async function readSafeFile(
   try {
     const info = await stat(safePath);
     if (info.size > maxBytes) {
-      throw new CLIError(`${label} must be under ${maxBytes} bytes.`, "VALIDATION_ERROR", 422);
+      throw new CLIError(
+        `${label} must be ${formatBytes(maxBytes)} or smaller (got ${formatBytes(info.size)}).`,
+        "VALIDATION_ERROR",
+        422
+      );
     }
     return await readFile(safePath);
   } catch (error) {
@@ -71,6 +75,13 @@ export async function writeSafeTextFile(
   } catch (error) {
     throw toFileError(error, label, inputPath);
   }
+}
+
+function formatBytes(bytes: number): string {
+  const mb = 1024 * 1024;
+  if (bytes >= mb && bytes % mb === 0) return `${bytes / mb}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${bytes} bytes`;
 }
 
 function toFileError(error: unknown, label: string, inputPath: string): CLIError {
