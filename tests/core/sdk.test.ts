@@ -757,6 +757,15 @@ describe("SDK wrapper methods", () => {
         html: "<p>Updated</p>",
       });
     });
+
+    it("updateSequenceEmail forwards the inbox snippet as inbox_snippet", async () => {
+      await client.updateSequenceEmail("12345", { inboxSnippet: "Peek" });
+
+      expect(mockSdk.V1.EmailTemplates.updateEmailTemplate).toHaveBeenCalledWith({
+        id: 12345,
+        inbox_snippet: "Peek",
+      });
+    });
   });
 
   describe("error propagation", () => {

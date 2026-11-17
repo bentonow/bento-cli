@@ -170,4 +170,5 @@ export interface CreateSequenceEmailInput {
 export interface UpdateSequenceEmailInput {
   subject?: string;
   html?: string;
+  inboxSnippet?: string;
 }

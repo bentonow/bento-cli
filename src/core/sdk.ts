@@ -16,12 +16,29 @@ import {
   RateLimitedError,
   RequestTimeoutError,
 } from "@bentonow/bento-node-sdk";
+import type {
+  Author,
+  BroadcastCreate,
+  BroadcastDetail,
+  BroadcastUpdate,
+  EmailRender,
+  EmailSource,
+  EmailTest,
+  ImageUpload,
+  ImageUploadInput,
+  Segment,
+  SubscriberActivity,
+  SubscriberLookup,
+  WorkflowDetail,
+  WorkflowProposal,
+  WorkflowProposalInput,
+  WorkflowSummary,
+} from "../types/agentic";
 import type { BentoProfile } from "../types/config";
 import type {
   AddFieldParams,
   Broadcast,
   BroadcastCreateResult,
-  CreateBroadcastInput,
   CreateSequenceEmailInput,
   EmailTemplate,
   Field,
@@ -39,6 +56,7 @@ import type {
   TrackEventParams,
   UpdateSequenceEmailInput,
 } from "../types/sdk";
+import { normalizeSegment } from "../utils/segment-query";
 import {
   type ResolveSequenceIdResult,
   isSequenceId,
@@ -56,7 +74,9 @@ export class CLIError extends Error {
   constructor(
     message: string,
     public readonly code: SDKErrorCode,
-    public readonly statusCode?: number
+    public readonly statusCode?: number,
+    /** Parsed JSON error body from the API, when there was one. */
+    public readonly body?: Record<string, unknown>
   ) {
     super(message);
     this.name = "CLIError";
@@ -574,7 +594,7 @@ export class BentoClient {
   /**
    * Create a new broadcast (draft)
    */
-  async createBroadcast(input: CreateBroadcastInput): Promise<BroadcastCreateResult> {
+  async createBroadcast(input: BroadcastCreate): Promise<BroadcastCreateResult> {
     const raw = await this.handleApiCall(() =>
       this.apiPost<unknown>("/batch/broadcasts", {
         broadcasts: [input],
@@ -582,6 +602,142 @@ export class BentoClient {
     );
 
     return normalizeBroadcastCreateResult(raw);
+  }
+
+  async getBroadcast(id: string): Promise<BroadcastDetail> {
+    return this.fetchData(() =>
+      this.apiGet<{ data?: BroadcastDetail }>(`/fetch/broadcasts/${encodeURIComponent(id)}`)
+    );
+  }
+
+  /** Only draft and scheduled broadcasts are editable (409 otherwise). */
+  async updateBroadcast(id: string, changes: BroadcastUpdate): Promise<BroadcastDetail> {
+    return this.fetchData(() =>
+      this.apiPatch<{ data?: BroadcastDetail }>(`/fetch/broadcasts/${encodeURIComponent(id)}`, {
+        broadcast: changes,
+      })
+    );
+  }
+
+  // ============================================================
+  // Subscriber Activity
+  // ============================================================
+
+  async getSubscriberActivity(
+    lookup: SubscriberLookup,
+    limit?: number
+  ): Promise<SubscriberActivity> {
+    return this.fetchData(() =>
+      this.apiGet<{ data?: SubscriberActivity }>("/fetch/subscribers/activity", {
+        email: lookup.email,
+        uuid: lookup.uuid,
+        limit,
+      })
+    );
+  }
+
+  // ============================================================
+  // Email Render / Test
+  // ============================================================
+
+  /** Renders and validates Liquid. Never sends. A 200 can still carry `valid: false`. */
+  async renderEmail(source: EmailSource, asEmail?: string): Promise<EmailRender> {
+    return this.fetchData(() =>
+      this.apiPost<{ data?: EmailRender }>("/fetch/emails/render", {
+        ...emailSourceBody(source),
+        ...(asEmail ? { email: asEmail } : {}),
+      })
+    );
+  }
+
+  async sendTestEmail(source: EmailSource, to: string[], asEmail?: string): Promise<EmailTest> {
+    return this.fetchData(() =>
+      this.apiPost<{ data?: EmailTest }>("/fetch/emails/test", {
+        ...emailSourceBody(source),
+        ...(asEmail ? { email: asEmail } : {}),
+        to,
+      })
+    );
+  }
+
+  // ============================================================
+  // Authors, Segments, Images
+  // ============================================================
+
+  async getAuthors(page?: number): Promise<Author[]> {
+    return this.fetchList(() =>
+      this.apiGet<{ data?: Author[] } | Author[]>("/fetch/authors", { page })
+    );
+  }
+
+  async getSegments(page?: number): Promise<Segment[]> {
+    const segments = await this.fetchList(() =>
+      this.apiGet<{ data?: Segment[] } | Segment[]>("/fetch/segments", { page })
+    );
+    return segments.map(normalizeSegment);
+  }
+
+  async getSegment(id: string): Promise<Segment> {
+    const segment = await this.fetchData(() =>
+      this.apiGet<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`)
+    );
+    return normalizeSegment(segment);
+  }
+
+  async uploadImage(input: ImageUploadInput): Promise<ImageUpload> {
+    return this.fetchData(() =>
+      this.apiPost<{ data?: ImageUpload }>("/fetch/uploads/images", {
+        filename: input.filename,
+        data: input.data,
+      })
+    );
+  }
+
+  // ============================================================
+  // Workflows and Proposals
+  // ============================================================
+
+  async getWorkflows(page?: number): Promise<WorkflowSummary[]> {
+    return this.fetchList(() =>
+      this.apiGet<{ data?: WorkflowSummary[] } | WorkflowSummary[]>("/fetch/workflows", { page })
+    );
+  }
+
+  async getWorkflow(id: string): Promise<WorkflowDetail> {
+    return this.fetchData(() =>
+      this.apiGet<{ data?: WorkflowDetail }>(`/fetch/workflows/${encodeURIComponent(id)}`)
+    );
+  }
+
+  /** Creates a pending proposal. It only takes effect once accepted in the Flow Builder. */
+  async proposeWorkflowChange(
+    workflowId: string,
+    proposal: WorkflowProposalInput
+  ): Promise<WorkflowProposal> {
+    const created = await this.fetchData(() =>
+      this.apiPost<{ data?: WorkflowProposal }>(
+        `/fetch/workflows/${encodeURIComponent(workflowId)}/proposals`,
+        { proposal }
+      )
+    );
+    return this.withAbsoluteReviewUrl(created);
+  }
+
+  async getWorkflowProposals(workflowId: string): Promise<WorkflowProposal[]> {
+    const proposals = await this.fetchList(() =>
+      this.apiGet<{ data?: WorkflowProposal[] } | WorkflowProposal[]>(
+        `/fetch/workflows/${encodeURIComponent(workflowId)}/proposals`
+      )
+    );
+    return proposals.map((proposal) => this.withAbsoluteReviewUrl(proposal));
+  }
+
+  /** The API may return `/account/workflows/...`; resolve it against the app host. */
+  private withAbsoluteReviewUrl(proposal: WorkflowProposal): WorkflowProposal {
+    const reviewUrl = proposal.attributes.review_url;
+    if (!reviewUrl || /^https?:\/\//.test(reviewUrl)) return proposal;
+    const absolute = new URL(reviewUrl, new URL(this.apiBaseUrl).origin).toString();
+    return { ...proposal, attributes: { ...proposal.attributes, review_url: absolute } };
   }
 
   // ============================================================
@@ -701,11 +857,14 @@ export class BentoClient {
     }
 
     const sdk = await this.getClient();
-    const payload: { id: number; subject?: string; html?: string } = {
+    // The SDK forwards every non-id field as `email_template`, so `inbox_snippet` reaches the API
+    // even though the SDK's parameter type predates it.
+    const payload: { id: number; subject?: string; html?: string; inbox_snippet?: string } = {
       id: numericTemplateId,
     };
     if (input.subject !== undefined) payload.subject = input.subject;
     if (input.html !== undefined) payload.html = input.html;
+    if (input.inboxSnippet !== undefined) payload.inbox_snippet = input.inboxSnippet;
 
     return this.handleApiCall(() => sdk.V1.EmailTemplates.updateEmailTemplate(payload));
   }
@@ -747,6 +906,17 @@ export class BentoClient {
   /**
    * Wrap API calls with consistent error handling
    */
+  private async fetchData<T>(fn: () => Promise<{ data?: T }>): Promise<T> {
+    return this.handleApiCall(async () => unwrapData(await fn()));
+  }
+
+  private async fetchList<T>(fn: () => Promise<{ data?: T[] } | T[]>): Promise<T[]> {
+    return this.handleApiCall(async () => {
+      const response = await fn();
+      return Array.isArray(response) ? response : (response?.data ?? []);
+    });
+  }
+
   private async handleApiCall<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -759,6 +929,10 @@ export class BentoClient {
    * Translate SDK/API errors to CLI-friendly errors
    */
   private translateError(error: unknown): CLIError {
+    if (error instanceof CLIError) {
+      return error;
+    }
+
     // Handle SDK-specific error types
     if (error instanceof NotAuthorizedError) {
       return new CLIError(
@@ -878,35 +1052,22 @@ export class BentoClient {
   }
 
   private async apiDelete<T>(path: string, payload: Record<string, unknown>): Promise<T> {
-    const profile = await this.ensureProfileLoaded();
-    const url = new URL(`${this.apiBaseUrl}${path}`);
-    const body = {
-      ...payload,
-      site_uuid: profile.siteUuid,
-    };
-
-    const response = await fetch(url, {
-      method: "DELETE",
-      headers: {
-        ...this.buildAuthHeaders(profile),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const bodyText = await response.text();
-      throw this.createHttpError(response.status, bodyText || response.statusText);
-    }
-
-    try {
-      return (await response.json()) as T;
-    } catch {
-      throw new CLIError("Invalid JSON response from Bento API.", "API_ERROR", response.status);
-    }
+    return this.apiSend<T>("DELETE", path, payload);
   }
 
   private async apiPost<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+    return this.apiSend<T>("POST", path, payload);
+  }
+
+  private async apiPatch<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+    return this.apiSend<T>("PATCH", path, payload);
+  }
+
+  private async apiSend<T>(
+    method: "POST" | "PATCH" | "DELETE",
+    path: string,
+    payload: Record<string, unknown>
+  ): Promise<T> {
     const profile = await this.ensureProfileLoaded();
     const url = new URL(`${this.apiBaseUrl}${path}`);
     const body = {
@@ -915,7 +1076,7 @@ export class BentoClient {
     };
 
     const response = await fetch(url, {
-      method: "POST",
+      method,
       headers: {
         ...this.buildAuthHeaders(profile),
         "Content-Type": "application/json",
@@ -945,7 +1106,14 @@ export class BentoClient {
     };
   }
 
-  private createHttpError(status: number, message: string): CLIError {
+  private createHttpError(status: number, body: string): CLIError {
+    const error = this.describeHttpError(status, body);
+    return new CLIError(error.message, error.code, error.statusCode, parseErrorBody(body));
+  }
+
+  private describeHttpError(status: number, body: string): CLIError {
+    const detail = extractApiErrorDetail(body);
+    const suffix = detail ? ` ${detail}` : "";
     switch (status) {
       case 401:
         return new CLIError(
@@ -955,17 +1123,19 @@ export class BentoClient {
         );
       case 403:
         return new CLIError(
-          "Access denied: Your API key does not have permission for this operation.",
+          detail
+            ? `Access denied: ${detail}`
+            : "Access denied: Your API key does not have permission for this operation.",
           "AUTH_FAILED",
           status
         );
       case 404:
-        return new CLIError("Resource not found.", "NOT_FOUND", status);
+        return new CLIError(`Resource not found.${suffix}`, "NOT_FOUND", status);
       case 422:
-        return new CLIError(`Validation error: ${message}`, "VALIDATION_ERROR", status);
+        return new CLIError(`Validation error: ${detail ?? body}`, "VALIDATION_ERROR", status);
       case 429:
         return new CLIError(
-          "Rate limited: Too many requests. Retry in 30 seconds.",
+          `Rate limited: ${detail ?? "Too many requests. Retry in 30 seconds."}`,
           "RATE_LIMITED",
           status
         );
@@ -977,7 +1147,7 @@ export class BentoClient {
             status
           );
         }
-        return new CLIError(`Request failed (${status}): ${message}`, "UNKNOWN", status);
+        return new CLIError(`Request failed (${status}): ${detail ?? body}`, "UNKNOWN", status);
     }
   }
 
@@ -1002,6 +1172,74 @@ export class BentoClient {
         422
       );
     }
+  }
+}
+
+/**
+ * Pull `{ error, errors }` out of a Bento error body. Returns null for non-JSON bodies.
+ */
+export function extractApiErrorDetail(body: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+
+  const { error, errors } = parsed as { error?: unknown; errors?: unknown };
+  const parts: string[] = [];
+  if (typeof error === "string" && error.trim()) parts.push(error.trim());
+  if (Array.isArray(errors)) {
+    for (const item of errors) {
+      if (typeof item === "string") {
+        parts.push(item);
+      } else if (item && typeof item === "object") {
+        const { field, line, message } = item as {
+          field?: unknown;
+          line?: unknown;
+          message?: unknown;
+        };
+        const location = [field, line].filter((v) => v !== undefined && v !== null).join(":");
+        const text = typeof message === "string" ? message : JSON.stringify(item);
+        parts.push(location ? `${location} ${text}` : text);
+      }
+    }
+  }
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
+function parseErrorBody(body: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function unwrapData<T>(response: { data?: T } | null | undefined): T {
+  if (!response || response.data === undefined || response.data === null) {
+    throw new CLIError("Unexpected empty response from Bento API.", "API_ERROR");
+  }
+  return response.data;
+}
+
+function emailSourceBody(source: EmailSource): Record<string, unknown> {
+  switch (source.kind) {
+    case "template":
+      return { template_id: source.templateId };
+    case "broadcast":
+      return { broadcast_id: source.broadcastId };
+    case "raw":
+      return {
+        subject: source.subject,
+        html: source.html,
+        ...(source.previewText !== undefined ? { preview_text: source.previewText } : {}),
+        ...(source.type ? { type: source.type } : {}),
+      };
   }
 }
 

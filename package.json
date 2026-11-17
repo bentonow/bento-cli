@@ -6,18 +6,13 @@
   "bin": {
     "bento": "./bin/bento"
   },
-  "files": [
-    "bin",
-    "dist",
-    "skill",
-    "LICENSE",
-    "README.md"
-  ],
+  "files": ["bin", "dist", "skill", "LICENSE", "README.md"],
   "scripts": {
     "dev": "bun run src/cli.ts",
     "build": "bun run scripts/build.ts",
     "test": "bun test",
     "lint": "biome check .",
+    "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
     "prepublishOnly": "bun test && bun run build"
   },
@@ -33,7 +28,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "7.0.2"
   },
   "engines": {
     "node": ">=18.0.0",

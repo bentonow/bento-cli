@@ -191,7 +191,7 @@ describe("sequences update-email validation", () => {
 
     const result = runCLI(["sequences", "update-email", "--template-id", "12345"], { configPath });
     expect(result.stderr).toContain(
-      "At least one of --subject, --html, or --html-file must be provided"
+      "At least one of --subject, --html, --html-file, or --inbox-snippet must be provided"
     );
     expect(result.exitCode).toBe(1);
   });
@@ -352,6 +352,67 @@ describe("sequences update-email success", () => {
 
     updateSpy.mockRestore();
     successSpy.mockRestore();
+  });
+
+  it.each([["--inbox-snippet"], ["--preview-text"]])(
+    "updates only the inbox snippet via %s",
+    async (flag) => {
+      output.setInteractiveOverride(false);
+      const updateSpy = spyOn(bento, "updateSequenceEmail").mockResolvedValue(makeTemplate(12345));
+      const successSpy = spyOn(output, "success").mockImplementation(() => {});
+
+      const program = buildProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "sequences",
+        "update-email",
+        "--template-id",
+        "12345",
+        flag,
+        "Peek inside",
+      ]);
+
+      expect(updateSpy).toHaveBeenCalledWith("12345", {
+        subject: undefined,
+        html: undefined,
+        inboxSnippet: "Peek inside",
+      });
+
+      updateSpy.mockRestore();
+      successSpy.mockRestore();
+    }
+  );
+
+  it("rejects conflicting --inbox-snippet and --preview-text", async () => {
+    const updateSpy = spyOn(bento, "updateSequenceEmail").mockResolvedValue(makeTemplate(12345));
+    const errorSpy = spyOn(output, "error").mockImplementation(() => {});
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    const program = buildProgram();
+    await expect(
+      program.parseAsync([
+        "node",
+        "test",
+        "sequences",
+        "update-email",
+        "--template-id",
+        "12345",
+        "--inbox-snippet",
+        "a",
+        "--preview-text",
+        "b",
+      ])
+    ).rejects.toThrow("exit:1");
+
+    expect(errorSpy).toHaveBeenCalledWith("Provide only one of --inbox-snippet or --preview-text.");
+    expect(updateSpy).not.toHaveBeenCalled();
+
+    updateSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "bun";
+import packageJson from "../../package.json" with { type: "json" };
 
 describe("bento CLI", () => {
   it("shows help with --help flag", () => {
@@ -12,7 +13,7 @@ describe("bento CLI", () => {
   it("shows version with --version flag", () => {
     const result = spawnSync(["bun", "run", "src/cli.ts", "--version"]);
     const stdout = result.stdout.toString();
-    expect(stdout).toContain("0.1.1");
+    expect(stdout.trim()).toBe(packageJson.version);
   });
 
   it("shows welcome screen when no command is provided", () => {

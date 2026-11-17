@@ -128,6 +128,10 @@ bento subscribers unsubscribe --file unsubscribes.csv --confirm
 
 # Re-subscribe (restore email delivery)
 bento subscribers subscribe --email user@example.com
+
+# Engagement summary + recent events
+bento subscribers activity user@example.com
+bento subscribers activity --uuid 4f1c... --limit 50
 ```
 
 ### Tags
@@ -194,8 +198,157 @@ bento broadcasts create \
   --subject "What's new this month" \
   --content "<h1>Hello!</h1><p>Here's our update...</p>" \
   --type html \
-  --include-tags "newsletter,active"
+  --include-tags "newsletter,active" \
+  --author-id 1 \
+  --preview-text "Three things we shipped" \
+  --segment-id 12 \
+  --send-at 2026-11-20T09:00:00Z
+
+# Show one broadcast (content, audience, schedule, status)
+bento broadcasts get 456
+
+# Edit a draft or scheduled broadcast
+bento broadcasts update 456 --subject "New subject" --html-file ./emails/jan.html
+bento broadcasts update 456 --include-tags "vip,beta" --exclude-tags ""   # "" clears
+bento broadcasts update 456 --segment-id none                             # clear segment
+
+# Approve for sending. The prompt shows the time it will go out at; --confirm or
+# BENTO_AUTO_CONFIRM=true skips the prompt. Needs a future send time (stored or --send-at).
+bento broadcasts update 456 --approve
+bento broadcasts update 456 --approve --send-at 2026-12-01T09:00:00Z
+bento broadcasts update 456 --unapprove
 ```
+
+Only draft and scheduled broadcasts can be edited. Paused broadcasts have already started sending,
+so the API refuses them with 409, like sending, sent, and canceled ones. `--send-at` must be in the
+future (checked before the request). `--approve` refuses a broadcast whose send time is missing or
+has passed; pass a future `--send-at` in the same command.
+
+`--type plain|raw` picks the editor and can be
+sent on its own; replacing the body of a visual-editor broadcast needs `--type`. `--batch-size`
+is 10 to 500000. On create, `--type html` and `markdown` use the raw editor, and `--from-email`
+and `--author-id` are mutually exclusive.
+
+#### Tag targeting (check before you send)
+
+- `--include-tags a,b` sends only to subscribers who have **all** of the listed tags, not any.
+- `--exclude-tags a,b` drops anyone who has **any** of the listed tags.
+- Tags combine with the segment (`--segment-id`) using AND.
+- Names are exact and case-sensitive. Bento **creates unknown names as new, empty tags**: a typo in
+  `--include-tags` matches nobody, and a typo in `--exclude-tags` excludes nobody.
+- At most 20 names per flag and 100 characters per name. The CLI refuses more (Bento would silently
+  ignore the extras).
+- Before sending, the CLI checks every name against `bento tags list`. If any name doesn't exist
+  yet, it prints why and exits 1 (in `--json` mode: `success: false` with the details in `error`).
+  Re-run with `--confirm` (or `BENTO_AUTO_CONFIRM=true`) only if you really mean to use a new tag;
+  the warnings are then printed, and in `--json` mode returned in `meta.warnings`.
+
+### Emails (render and test)
+
+```bash
+# Render + validate Liquid. Exits 1 when invalid. Never sends.
+bento emails render --template-id 123
+bento emails render --broadcast-id 456 --email jane@example.com   # render as a subscriber
+bento emails render --subject "Hi {{ visitor.first_name }}" --html-file ./email.html \
+  --preview-text "Peek" --html            # print rendered HTML instead of text
+bento emails render --template-id 123 --out ./rendered.html
+bento emails render --subject "Hi" --html-file ./plain.txt --type plain   # raw content editor: raw (default) or plain
+bento emails render --template-id 123 --json | jq ".data.attributes.valid"
+
+# Send a test (max 5 recipients; team members or the site's sending domains only)
+bento emails test --template-id 123 --to me@acme.com,teammate@acme.com
+bento emails test --broadcast-id 456 --to me@acme.com --dry-run   # render only
+```
+
+Use exactly one source: `--template-id`, `--broadcast-id`, or `--subject` with `--html-file`
+(`--preview-text` and `--type` only apply to raw content; subject + HTML + preview text must
+total 512KB or less). An unknown template, broadcast, or `--email` subscriber is a 404.
+`--json` output: `.success` (false when invalid), `.data.attributes.valid`,
+`.data.attributes.errors[]` (`{field, line, message}`), `.data.attributes.warnings[]`,
+`.data.attributes.rendered.{subject,preview_text,html,text,from,to}`, `.data.attributes.rendered_as`.
+Test sends: `.data.attributes.deliveries[].{to,status,job_id,queued_at}`.
+
+### Authors
+
+```bash
+bento authors list            # IDs for --author-id
+```
+
+### Segments
+
+```bash
+bento segments list
+bento segments get 12 --json
+```
+
+Segments are read-only through the API for now: creating and updating them is coming soon (the
+API answers 501), so manage segments in the Bento app. `segments get` prints the segment's query
+formatted (the API stores it as a JSON string), and in `--json` output
+`.data.attributes.visitor_event_query` is an object. Tag rules in that query use the
+`cached_tag_ids` filter with tag **ids** as values.
+
+### Images
+
+```bash
+bento images upload ./hero.png    # prints the hosted URL
+```
+
+Accepts png, jpg/jpeg, gif, and webp up to 1MB (SVG is not allowed). Bento allows 20 image
+uploads per site per day, and only for approved accounts: until your account is approved the CLI
+exits 1 with a message saying so.
+
+### Workflows
+
+```bash
+bento workflows list
+bento workflows get 42                     # diagram revision + node IDs
+bento workflows propose 42 \
+  --patch-file ./patch.json \
+  --summary "Add a 2-day wait after signup" \
+  --base-revision 3f9a1c0b7e2d4a65
+bento workflows proposals 42               # pending + stale proposals
+```
+
+`--patch-file` uses the same patch format as Tanuki:
+
+```json
+{
+  "add_nodes": [
+    { "id": "wait_2d", "type": "delay", "config": { "delay_interval_count": 2, "delay_interval": "days" }, "insert_after": "trigger_1" },
+    { "id": "tag_yes", "type": "tag", "config": { "tag_name": "engaged" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
+  ],
+  "update_nodes": [ { "id": "email_3", "config": { "name": "Day 2 follow-up" } } ],
+  "remove_nodes": [ "old_tag_1" ],
+  "add_links": [ { "from": "wait_2d", "to": "email_3" } ],
+  "remove_links": [ { "from": "split_1", "fromPort": "bottom_1" } ]
+}
+```
+
+- `add_nodes` items are `{ id, type, config, insert_after?, insert_after_port?, insert_before? }`.
+  New ids must not already exist on the flow. Connect each non-trigger node with `insert_after`
+  (an existing node id, or a new node that chains back to one) or `insert_before`. For split
+  nodes, `insert_after_port` is `bottom_0` (true branch) or `bottom_1` (false branch). Delay nodes
+  need `delay_interval_count` and `delay_interval` in `config`; tag nodes need `tag_name`.
+- `update_nodes` items are `{ id, config }`, and `config` holds only the keys you are changing.
+- `remove_nodes` is a list of existing node ids. Links reconnect automatically.
+- `add_links` and `update_links` items are `{ from, to, fromPort? }`. `remove_links` items are
+  `{ from, fromPort?, to? }` and remove whatever leaves that port.
+- `move_nodes` (`{ id, move_after | move_before }`) is accepted, but the Flow Builder does not
+  apply moves yet. Avoid it; the CLI warns if you send it.
+- Limits: 64KB, 200 changes in total, summary up to 500 characters, at most 20 pending proposals
+  per flow (422 beyond that). camelCase keys (`addNodes`) are also accepted.
+- Get node ids and the revision from `bento workflows get <id>`. In `--json` output they are
+  `.data.attributes.triggers[].id`, `.data.attributes.nodes[].id`, and
+  `.data.attributes.diagram_revision`.
+- `--base-revision` is the 16-character `diagram_revision`. If the flow changed since then, the
+  API answers 409 and the CLI prints the current revision and tells you to re-fetch the flow and
+  rebuild the patch.
+- On success the CLI prints the proposal id, status, absolute review URL, expiry, and any
+  validator warnings. In `--json` output: `.data.id`, `.data.attributes.status`,
+  `.data.attributes.review_url`, `.data.attributes.warnings[]`, `.data.attributes.created_by`.
+
+`propose` never edits the flow. It creates a proposal and prints a review URL. The change only
+takes effect after someone accepts it in the Flow Builder.
 
 ### Sequences
 
@@ -232,6 +385,11 @@ bento sequences update-email \
 bento sequences update-email \
   --template-id 12345 \
   --html-file ./emails/updated-welcome.html
+
+# Update the inbox preview text (alias: --preview-text)
+bento sequences update-email \
+  --template-id 12345 \
+  --inbox-snippet "A quick note before you start"
 ```
 
 Maintainer release order for this feature:
@@ -239,7 +397,7 @@ Maintainer release order for this feature:
 2. Publish a `bento-node-sdk` version that includes `createSequenceEmail`.
 3. Release `bento-cli` against that SDK version.
 
-Current API limitation: sequence email updates support `subject` and `html` fields only.
+Sequence email updates support `subject`, `html`, and `inbox_snippet`.
 
 ### Statistics
 
@@ -247,6 +405,28 @@ Current API limitation: sequence email updates support `subject` and `html` fiel
 # View site-wide stats
 bento stats site
 ```
+
+### Agent workflow: render → test → propose
+
+Agents (and CI) should check their work before anything reaches subscribers:
+
+```bash
+# 1. Validate Liquid and inspect the output. Non-zero exit = fix before continuing.
+bento emails render --subject "$SUBJECT" --html-file draft.html --json
+
+# 2. Send it to yourself.
+bento emails test --subject "$SUBJECT" --html-file draft.html --to me@acme.com
+
+# 3a. Apply to a draft broadcast (approval stays a separate, confirmed step).
+bento broadcasts update 456 --subject "$SUBJECT" --html-file draft.html
+
+# 3b. Flows are never edited directly: propose, then a human accepts in the Flow Builder.
+bento workflows get 42 --json            # read diagram_revision + node IDs
+bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
+```
+
+File flags (`--html-file`, `--patch-file`, `--out`, `images upload`) only accept
+paths inside the current working directory.
 
 ## Output Modes
 

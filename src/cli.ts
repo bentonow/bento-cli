@@ -1,27 +1,33 @@
-import { Command } from "commander";
 import chalk from "chalk";
+import { Command } from "commander";
 
+import packageJson from "../package.json" with { type: "json" };
 import { registerAuthCommands } from "./commands/auth";
+import { registerAuthorsCommands } from "./commands/authors";
 import { registerBroadcastsCommands } from "./commands/broadcasts";
 import { registerDashboardCommand } from "./commands/dashboard";
+import { registerEmailsCommands } from "./commands/emails";
 import { registerEventsCommands } from "./commands/events";
 import { registerFieldsCommands } from "./commands/fields";
+import { registerImagesCommands } from "./commands/images";
 import { registerProfileCommands } from "./commands/profile";
+import { registerSegmentsCommands } from "./commands/segments";
 import { registerSequencesCommands } from "./commands/sequences";
 import { registerStatsCommands } from "./commands/stats";
 import { registerSubscribersCommands } from "./commands/subscribers";
 import { registerTagsCommands } from "./commands/tags";
-import { output } from "./core/output";
+import { registerWorkflowsCommands } from "./commands/workflows";
 import { config } from "./core/config";
+import { output } from "./core/output";
+
+const version = packageJson.version;
 
 const program = new Command();
 
 program
   .name("bento")
-  .description(
-    "Bento CLI - Command-oriented interface for Bento email marketing"
-  )
-  .version("0.1.1")
+  .description("Bento CLI - Command-oriented interface for Bento email marketing")
+  .version(version)
   .option("--json", "Output machine-readable JSON")
   .option("--quiet", "Suppress non-essential output (errors still print)")
   .hook("preAction", (thisCommand) => {
@@ -51,14 +57,14 @@ registerTagsCommands(program);
 registerFieldsCommands(program);
 registerEventsCommands(program);
 registerBroadcastsCommands(program);
+registerEmailsCommands(program);
+registerAuthorsCommands(program);
+registerSegmentsCommands(program);
+registerImagesCommands(program);
 registerSequencesCommands(program);
+registerWorkflowsCommands(program);
 registerStatsCommands(program);
 registerDashboardCommand(program);
-
-// Future commands to be implemented:
-// - subscribers (search, import, tag, suppress)
-// - mcp (status, start, stop)
-// - ask
 
 program.parseAsync().catch((error) => {
   // Commander's exitOverride throws here — let it pass
@@ -95,13 +101,11 @@ function configureOutputMode(options: { json?: boolean; quiet?: boolean }): void
 }
 
 async function showWelcomeScreen(): Promise<void> {
-  const version = "0.1.1";
-  
   // Bento brand color (purple)
   const brand = chalk.hex("#8B5CF6");
   const dim = chalk.dim;
   const bold = chalk.bold;
-  
+
   const logo = `
   ${brand("██████╗ ███████╗███╗   ██╗████████╗ ██████╗ ")}
   ${brand("██╔══██╗██╔════╝████╗  ██║╚══██╔══╝██╔═══██╗")}
@@ -120,14 +124,14 @@ async function showWelcomeScreen(): Promise<void> {
   try {
     const currentProfile = await config.getCurrentProfileName();
     if (currentProfile) {
-      authStatus = chalk.green(`● Authenticated`) + dim(` (${currentProfile})`);
+      authStatus = chalk.green("● Authenticated") + dim(` (${currentProfile})`);
     } else {
-      authStatus = chalk.yellow(`○ Not authenticated`);
+      authStatus = chalk.yellow("○ Not authenticated");
     }
   } catch {
-    authStatus = chalk.yellow(`○ Not authenticated`);
+    authStatus = chalk.yellow("○ Not authenticated");
   }
-  
+
   console.log(`  ${authStatus}`);
   console.log();
   console.log(`  ${bold("Quick Start")}`);
