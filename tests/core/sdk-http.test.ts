@@ -175,6 +175,50 @@ describe("BentoClient HTTP helpers", () => {
       expect(lastRequest().url.pathname).toBe("/api/v1/fetch/workflows/w1/proposals");
     });
 
+    it("parses the segment query JSON string GET returns", async () => {
+      const query = { condition: "AND", rules: [] };
+      nextResponse = () =>
+        jsonResponse({
+          data: {
+            id: "12",
+            type: "segment",
+            attributes: { name: "S", visitor_event_query: JSON.stringify(query) },
+          },
+        });
+      const segment = await client.getSegment("12");
+      expect(segment.attributes.visitor_event_query).toEqual(query);
+    });
+
+    it("resolves a relative proposal review_url against the app host", async () => {
+      nextResponse = () =>
+        jsonResponse({
+          data: [
+            {
+              id: "prop_1",
+              type: "workflow_proposal",
+              attributes: { review_url: "/account/workflows/42/edit?proposal=prop_1" },
+            },
+          ],
+        });
+      const [proposal] = await client.getWorkflowProposals("42");
+      expect(proposal.attributes.review_url).toBe(
+        "https://app.bentonow.com/account/workflows/42/edit?proposal=prop_1"
+      );
+    });
+
+    it("keeps the parsed error body on CLIError (409 stale revision)", async () => {
+      nextResponse = () =>
+        jsonResponse(
+          { error: "The flow changed since base_revision", errors: ["x"], revision: "abc" },
+          409
+        );
+      const error = await client
+        .proposeWorkflowChange("42", { summary: "s", patch: { remove_nodes: ["a"] } })
+        .catch((e) => e);
+      expect(error.statusCode).toBe(409);
+      expect(error.body.revision).toBe("abc");
+    });
+
     it("rejects an empty data envelope", async () => {
       nextResponse = () => jsonResponse({});
       const error = await client.getBroadcast("1").catch((e) => e);
@@ -194,7 +238,13 @@ describe("BentoClient HTTP helpers", () => {
 
     it("renderEmail sends raw content and the subscriber to render as", async () => {
       await client.renderEmail(
-        { kind: "raw", subject: "Hi {{ visitor.first_name }}", html: "<p>x</p>", previewText: "p" },
+        {
+          kind: "raw",
+          subject: "Hi {{ visitor.first_name }}",
+          html: "<p>x</p>",
+          previewText: "p",
+          type: "plain",
+        },
         "jane@example.com"
       );
       expect(lastRequest().body).toEqual({
@@ -202,6 +252,7 @@ describe("BentoClient HTTP helpers", () => {
         subject: "Hi {{ visitor.first_name }}",
         html: "<p>x</p>",
         preview_text: "p",
+        type: "plain",
         email: "jane@example.com",
       });
     });

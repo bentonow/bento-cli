@@ -129,6 +129,63 @@ describe("bento emails render", () => {
     expect(await readFile(outPath, "utf8")).toBe("<p>Hello Jane</p>");
   });
 
+  it("sends --type for raw content and rejects unknown types", async () => {
+    const htmlPath = relative(process.cwd(), join(tempDir, "email.html"));
+    await writeFile(htmlPath, "Hello");
+
+    harness = createHarness(registerEmailsCommands);
+    await harness.run([
+      "emails",
+      "render",
+      "--subject",
+      "S",
+      "--html-file",
+      htmlPath,
+      "--type",
+      "plain",
+    ]);
+    expect(renderSpy).toHaveBeenCalledWith(
+      { kind: "raw", subject: "S", html: "Hello", type: "plain" },
+      undefined
+    );
+    harness.restore();
+
+    harness = createHarness(registerEmailsCommands);
+    const code = await harness.run([
+      "emails",
+      "render",
+      "--subject",
+      "S",
+      "--html-file",
+      htmlPath,
+      "--type",
+      "fancy",
+    ]);
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("--type must be one of: plain, raw");
+  });
+
+  it("rejects raw content over 512KB in total", async () => {
+    const htmlPath = relative(process.cwd(), join(tempDir, "big.html"));
+    await writeFile(htmlPath, "x".repeat(524_280));
+
+    harness = createHarness(registerEmailsCommands);
+    const code = await harness.run([
+      "emails",
+      "render",
+      "--subject",
+      "Subject",
+      "--html-file",
+      htmlPath,
+      "--preview-text",
+      "Peek",
+    ]);
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("must total at most 512KB");
+    expect(renderSpy).not.toHaveBeenCalled();
+  });
+
   it("exits 1 and lists errors and warnings when Liquid is invalid", async () => {
     renderSpy.mockResolvedValue(invalidRender);
     harness = createHarness(registerEmailsCommands);
@@ -171,6 +228,7 @@ describe("bento emails render", () => {
     [["--template-id", "abc"], "--template-id must be a positive integer"],
     [["--template-id", "1", "--email", "nope"], "--email must be a valid email address"],
     [["--subject", "Hi", "--html-file", "../outside.html"], "must be within the current"],
+    [["--template-id", "1", "--type", "plain"], "Provide exactly one source"],
   ])("rejects invalid input %p", async (args, message) => {
     harness = createHarness(registerEmailsCommands);
     const code = await harness.run(["emails", "render", ...args]);

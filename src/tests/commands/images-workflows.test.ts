@@ -24,8 +24,9 @@ const workflow: WorkflowDetail = {
   attributes: {
     name: "Onboarding",
     status: "live",
-    diagram_revision: "rev-abc",
-    nodes: [{ id: "n_trigger", type: "trigger", name: "Signed up" }],
+    diagram_revision: "0123456789abcdef",
+    triggers: [{ id: "trigger_1", type: "trigger", name: "Signed up" }],
+    nodes: [{ id: "n_email", type: "sendEmail", name: "Welcome email" }],
   },
 };
 
@@ -37,7 +38,8 @@ const proposal: WorkflowProposal = {
     summary: "Add a 2-day wait",
     status: "pending",
     source: "api",
-    base_revision: "rev-abc",
+    created_by: { type: "user", id: 7, label: "Jesse" },
+    base_revision: "0123456789abcdef",
     created_at: "2026-11-17T00:00:00Z",
     expires_at: "2026-11-24T00:00:00Z",
     review_url: "https://app.bentonow.com/workflows/w1/edit?proposal=prop_1",
@@ -185,15 +187,19 @@ describe("bento workflows", () => {
     harness = createHarness(registerWorkflowsCommands);
     await harness.run(["workflows", "get", "w1"]);
     const out = harness.stdout();
-    expect(out).toContain("Revision: rev-abc");
-    expect(out).toContain("n_trigger");
+    expect(out).toContain("Revision: 0123456789abcdef");
+    expect(out).toContain("trigger_1");
     expect(out).toContain("Signed up");
+    expect(out).toContain("n_email");
+    expect(out).toContain("Welcome email");
   });
 
   it("gets a workflow as JSON", async () => {
     harness = createHarness(registerWorkflowsCommands, "json");
     await harness.run(["workflows", "get", "w1"]);
-    expect(harness.json<WorkflowDetail>().data.attributes.diagram_revision).toBe("rev-abc");
+    expect(harness.json<WorkflowDetail>().data.attributes.diagram_revision).toBe(
+      "0123456789abcdef"
+    );
   });
 
   it("proposes a change and points at the Flow Builder", async () => {
@@ -203,7 +209,7 @@ describe("bento workflows", () => {
           id: "n_new1",
           type: "delay",
           config: { delay_interval_count: 2, delay_interval: "days" },
-          insert_after: "n_trigger",
+          insert_after: "trigger_1",
         },
       ],
     };
@@ -220,14 +226,14 @@ describe("bento workflows", () => {
       "--summary",
       "Add a 2-day wait",
       "--base-revision",
-      "rev-abc",
+      "0123456789abcdef",
     ]);
 
     expect(code).toBe(0);
     expect(proposeSpy).toHaveBeenCalledWith("w1", {
       summary: "Add a 2-day wait",
       patch,
-      base_revision: "rev-abc",
+      base_revision: "0123456789abcdef",
     });
     const out = harness.stdout();
     expect(out).toContain("Proposal prop_1 is pending.");
@@ -252,7 +258,26 @@ describe("bento workflows", () => {
   });
 
   it.each([
-    ["{}", ["--summary", "x"], "Patch file is empty"],
+    ["{}", ["--summary", "x"], "Patch has no changes"],
+    ['{"remove_nodes":[]}', ["--summary", "x"], "Patch has no changes"],
+    ['{"rename_nodes":[]}', ["--summary", "x"], "Unknown patch keys: rename_nodes"],
+    ['{"remove_nodes":"n1"}', ["--summary", "x"], "Patch keys must be arrays: remove_nodes"],
+    [
+      JSON.stringify({ remove_nodes: Array.from({ length: 201 }, (_, i) => `n${i}`) }),
+      ["--summary", "x"],
+      "more than 200 changes",
+    ],
+    [
+      JSON.stringify({ update_nodes: [{ id: "n1", config: { body: "x".repeat(70_000) } }] }),
+      ["--summary", "x"],
+      "larger than 64KB",
+    ],
+    ['{"remove_nodes":["a"]}', ["--summary", "y".repeat(501)], "500 characters or fewer"],
+    [
+      '{"remove_nodes":["a"]}',
+      ["--summary", "x", "--base-revision", "abc"],
+      "--base-revision must be the 16-character diagram_revision",
+    ],
     ["[]", ["--summary", "x"], "Patch file must contain a JSON object"],
     ["nope", ["--summary", "x"], "Patch file is not valid JSON"],
     ['{"remove_nodes":["a"]}', ["--summary", "  "], "--summary cannot be empty"],
@@ -290,12 +315,88 @@ describe("bento workflows", () => {
     expect(harness.json().error).toBe("Validation error: node ghost not found");
   });
 
+  it("explains a stale base revision (409) and how to recover", async () => {
+    const file = tempPath("patch.json");
+    await writeFile(file, '{"remove_nodes":["n1"]}');
+    proposeSpy.mockRejectedValue(
+      new CLIError("Request failed (409): The flow changed since base_revision", "UNKNOWN", 409, {
+        error: "The flow changed since base_revision",
+        errors: ["base_revision ..."],
+        revision: "fedcba9876543210",
+      })
+    );
+
+    harness = createHarness(registerWorkflowsCommands);
+    const code = await harness.run([
+      "workflows",
+      "propose",
+      "w1",
+      "--patch-file",
+      file,
+      "--summary",
+      "x",
+      "--base-revision",
+      "0123456789abcdef",
+    ]);
+
+    expect(code).toBe(1);
+    const err = harness.stderr();
+    expect(err).toContain(
+      "The flow changed since revision 0123456789abcdef (now fedcba9876543210)"
+    );
+    expect(err).toContain("bento workflows get w1");
+    expect(err).toContain("--base-revision fedcba9876543210");
+  });
+
+  it("prints validator warnings and warns that moves are not applied", async () => {
+    const file = tempPath("patch.json");
+    await writeFile(file, '{"move_nodes":[{"id":"n1","move_after":"n2"}]}');
+    proposeSpy.mockResolvedValue({
+      ...proposal,
+      attributes: { ...proposal.attributes, warnings: ["Corrected insert_after for n_new1"] },
+    });
+
+    harness = createHarness(registerWorkflowsCommands);
+    const code = await harness.run([
+      "workflows",
+      "propose",
+      "w1",
+      "--patch-file",
+      file,
+      "--summary",
+      "x",
+    ]);
+
+    expect(code).toBe(0);
+    const err = harness.stderr();
+    expect(err).toContain("move_nodes is accepted but the Flow Builder does not apply moves yet");
+    expect(err).toContain("Corrected insert_after for n_new1");
+  });
+
+  it("accepts camelCase patch keys", async () => {
+    const file = tempPath("patch.json");
+    await writeFile(file, '{"removeNodes":["n1"]}');
+    harness = createHarness(registerWorkflowsCommands);
+    const code = await harness.run([
+      "workflows",
+      "propose",
+      "w1",
+      "--patch-file",
+      file,
+      "--summary",
+      "x",
+    ]);
+    expect(code).toBe(0);
+  });
+
   it("lists proposals", async () => {
     harness = createHarness(registerWorkflowsCommands);
     await harness.run(["workflows", "proposals", "w1"]);
     const out = harness.stdout();
     expect(out).toContain("SUMMARY");
-    expect(out).toContain("prop_1: https://app.bentonow.com/workflows/w1/edit?proposal=prop_1");
+    expect(out).toContain(
+      "prop_1 (by Jesse): https://app.bentonow.com/workflows/w1/edit?proposal=prop_1"
+    );
   });
 
   it("lists proposals as JSON", async () => {

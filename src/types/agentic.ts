@@ -51,7 +51,14 @@ export type SubscriberLookup = { email: string; uuid?: never } | { uuid: string;
 export type EmailSource =
   | { kind: "template"; templateId: number }
   | { kind: "broadcast"; broadcastId: number }
-  | { kind: "raw"; subject: string; html: string; previewText?: string };
+  | {
+      kind: "raw";
+      subject: string;
+      html: string;
+      previewText?: string;
+      /** Editor for raw content; the API defaults to "raw". */
+      type?: "plain" | "raw";
+    };
 
 export interface LiquidIssue {
   field: string;
@@ -180,6 +187,7 @@ export type Segment = Resource<
   {
     name: string;
     description?: string | null;
+    /** Parsed by the client; the API returns a JSON string. */
     visitor_event_query?: SegmentQuery | null;
     created_at?: string | null;
     [key: string]: unknown;
@@ -211,8 +219,11 @@ export type WorkflowSummary = Resource<
 >;
 
 export interface WorkflowNode {
+  /** Canvas node id; use it in patch `insert_after`, `update_nodes`, links, etc. */
   id: string;
   type?: string;
+  name?: string | null;
+  config?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -221,6 +232,7 @@ export type WorkflowDetail = Resource<
     name: string;
     status: string;
     diagram_revision?: string | null;
+    triggers?: WorkflowNode[];
     nodes?: WorkflowNode[];
     [key: string]: unknown;
   },
@@ -242,11 +254,15 @@ export type WorkflowProposal = Resource<
     summary: string;
     status: "pending" | "accepted" | "rejected" | "stale" | string;
     source: string;
+    created_by?: { type: string; id: string | number | null; label: string | null } | null;
     base_revision: string | null;
     created_at: string | null;
     expires_at: string | null;
+    /** Absolute; the client resolves relative paths against the app host. */
     review_url: string | null;
     patch: WorkflowPatch;
+    /** Only on create: validator notes about corrections it made. */
+    warnings?: string[];
   },
   "workflow_proposal"
 >;

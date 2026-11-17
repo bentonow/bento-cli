@@ -395,15 +395,15 @@ bento broadcasts create \
 | `--name <name>` | Broadcast name (required) |
 | `--subject <subject>` | Email subject line (required) |
 | `--content <html>` | Email content |
-| `--type <type>` | Content type: plain, html, markdown (default html) |
-| `--from-name <name>` / `--from-email <email>` | Sender (alternative to `--author-id`) |
+| `--type <type>` | Content type: plain, html, markdown (default html; html and markdown use the raw editor) |
+| `--from-name <name>` / `--from-email <email>` | Sender (not together with `--author-id`) |
 | `--author-id <id>` | Sender author ID from `bento authors list` |
 | `--preview-text <text>` | Inbox preview text |
 | `--segment-id <id>` | Segment to target |
 | `--include-tags <tags>` | Comma-separated tags to include (sent as an array) |
 | `--exclude-tags <tags>` | Comma-separated tags to exclude (sent as an array) |
 | `--send-at <iso>` | Schedule time (ISO 8601) |
-| `--batch-size <n>` | Emails per hour (default 1000) |
+| `--batch-size <n>` | Emails per hour, 10-500000 (default 1000) |
 
 ### broadcasts update
 
@@ -422,13 +422,13 @@ bento broadcasts update 456 --approve --confirm
 | `--name <name>` | Broadcast name |
 | `--subject <subject>` | Subject line |
 | `--html-file <path>` | Replace the body with this file |
-| `--type <type>` | Content type for `--html-file`: plain, raw |
+| `--type <type>` | Editor: plain or raw. Can be sent alone; required to replace a visual-editor body |
 | `--preview-text <text>` | Inbox preview text |
 | `--author-id <id>` | Sender author ID |
 | `--segment-id <id>` | Segment ID, or `none` to clear |
 | `--include-tags <tags>` / `--exclude-tags <tags>` | Comma-separated; `""` clears |
 | `--send-at <iso>` | Schedule time (ISO 8601) |
-| `--batch-size <n>` | Emails per hour |
+| `--batch-size <n>` | Emails per hour, 10-500000 |
 | `--approve` / `--unapprove` | Approve for sending (prompts) or revoke approval |
 | `--confirm` | Skip the approval prompt |
 
@@ -438,8 +438,13 @@ bento broadcasts update 456 --approve --confirm
 
 Render, validate, and test-send emails. Each command takes exactly one source:
 `--template-id <id>`, `--broadcast-id <id>`, or `--subject <s>` + `--html-file <path>`
-(optionally `--preview-text <text>`). `--email <subscriber>` renders as that subscriber
-(default: the site's sample subscriber).
+(optionally `--preview-text <text>` and `--type raw|plain`, default raw; subject + HTML +
+preview text up to 512KB). `--email <subscriber>` renders as that subscriber (default: the
+site's sample subscriber). Unknown template, broadcast, or subscriber is a 404.
+
+`--json` output paths: `.success`, `.data.attributes.valid`, `.data.attributes.errors[]`
+(`{field, line, message}`), `.data.attributes.warnings[]`,
+`.data.attributes.rendered.{subject,preview_text,html,text,from,to}`, `.data.attributes.rendered_as`.
 
 ### emails render
 
@@ -460,7 +465,7 @@ bento emails render --template-id 123 --json    # success=false when invalid
 
 ### emails test
 
-Send the rendered email to up to 5 addresses. Recipients must be team members or on the site's
+Send the rendered email to up to 5 addresses (`--json`: `.data.attributes.deliveries[].{to,status,job_id,queued_at}`). Recipients must be team members or on the site's
 sending domains. Invalid Liquid is refused (422); disallowed recipients return 403; the daily
 preview limit returns 429.
 
@@ -497,7 +502,7 @@ bento authors list --page 2 --json
 ```bash
 bento segments list
 bento segments get 12
-bento segments get 12 --json     # includes visitor_event_query
+bento segments get 12 --json     # .data.attributes.visitor_event_query is parsed to an object
 ```
 
 ### segments create / update
@@ -507,20 +512,28 @@ bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --q
 bento segments update 12 --query-file vip.json
 ```
 
-`--query-file` is a JSON QueryBuilder group (same shape as `data.attributes.visitor_event_query`):
+`--query-file` is a JSON QueryBuilder group:
 
 ```json
 { "condition": "AND", "rules": [
-  { "id": "tags", "field": "tags", "operator": "contains", "value": "vip", "data": { "groupType": "visitor" } }
+  { "condition": "AND", "data": { "groupType": "visitor" }, "rules": [
+    { "id": "cached_tag_ids", "field": "cached_tag_ids", "type": "string", "operator": "contains", "value": "42" }
+  ] }
 ] }
 ```
+
+Tag rules use the `cached_tag_ids` filter with a tag **id** as the value, not the tag name. Every
+top-level rule or group needs `data.groupType` (`visitor` or `event`). The file may also be a
+saved `bento segments get <id> --json` output or a JSON string of the query; the CLI extracts the
+query. The API stores the query as a JSON string; the CLI parses it, so `segments get` prints it
+formatted and `--json` output has `.data.attributes.visitor_event_query` as an object.
 
 **Options**:
 | Option | Description |
 |--------|-------------|
 | `--name <name>` | Segment name (required for create) |
 | `--description <text>` | Description |
-| `--query-file <path>` | QueryBuilder JSON (validated by the API) |
+| `--query-file <path>` | QueryBuilder JSON or saved `segments get --json` output (required for create; validated by the API) |
 
 ---
 
@@ -602,7 +615,7 @@ Flows are never edited directly. Agents propose changes; a human accepts them in
 
 ```bash
 bento workflows list
-bento workflows get 42           # name, status, diagram_revision, node IDs
+bento workflows get 42           # name, status, revision, trigger + action node ids
 bento workflows get 42 --json
 ```
 
@@ -612,7 +625,7 @@ bento workflows get 42 --json
 bento workflows propose 42 \
   --patch-file ./patch.json \
   --summary "Add a 2-day wait and a follow-up email after signup" \
-  --base-revision abc123
+  --base-revision 3f9a1c0b7e2d4a65
 ```
 
 Prints the proposal status and review URL. Proposals expire after 7 days.
@@ -620,9 +633,9 @@ Prints the proposal status and review URL. Proposals expire after 7 days.
 **Options**:
 | Option | Description |
 |--------|-------------|
-| `--patch-file <path>` | JSON patch (`add_nodes`, `update_nodes`, `remove_nodes`, `add_links`, `remove_links`), validated by the API (required) |
-| `--summary <text>` | Description shown to the reviewer (required) |
-| `--base-revision <rev>` | `diagram_revision` from `workflows get`; marks the proposal stale if the flow changes |
+| `--patch-file <path>` | JSON patch, max 64KB / 200 changes, validated by the API (required) |
+| `--summary <text>` | Description shown to the reviewer, max 500 characters (required) |
+| `--base-revision <rev>` | 16-character `diagram_revision` from `workflows get`; 409 if the flow changed since |
 
 **Patch format** (same as Tanuki):
 
@@ -630,28 +643,42 @@ Prints the proposal status and review URL. Proposals expire after 7 days.
 {
   "add_nodes": [
     { "id": "wait_2d", "type": "delay", "config": { "delay_interval_count": 2, "delay_interval": "days" }, "insert_after": "trigger_1" },
-    { "id": "yes_email", "type": "email", "config": { "subject": "Welcome aboard" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
+    { "id": "tag_yes", "type": "tag", "config": { "tag_name": "engaged" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
   ],
-  "update_nodes": [ { "id": "email_3", "config": { "subject": "New subject" } } ],
+  "update_nodes": [ { "id": "email_3", "config": { "name": "Day 2 follow-up" } } ],
   "remove_nodes": [ "old_tag_1" ],
   "add_links": [ { "from": "wait_2d", "to": "email_3" } ],
   "remove_links": [ { "from": "split_1", "fromPort": "bottom_1" } ]
 }
 ```
 
-- `add_nodes` items need `id`, `type`, and `config`. Connect each non-trigger node with
-  `insert_after` (an existing node ID, or a new node that chains back to one) or `insert_before`.
-  For split nodes, `insert_after_port` is `bottom_0` (true) or `bottom_1` (false). Delay nodes need
-  `delay_interval_count` and `delay_interval` in `config`.
+- `add_nodes` items are `{ id, type, config, insert_after?, insert_after_port?, insert_before? }`.
+  New ids must not already exist on the flow. Connect each non-trigger node with `insert_after`
+  (an existing node id, or a new node that chains back to one) or `insert_before`. For split
+  nodes, `insert_after_port` is `bottom_0` (true branch) or `bottom_1` (false branch). Delay nodes
+  need `delay_interval_count` and `delay_interval` in `config`; tag nodes need `tag_name`.
 - `update_nodes` items are `{ id, config }`, and `config` holds only the keys you are changing.
-- `remove_nodes` is a list of existing node IDs. Links reconnect automatically.
-- `add_links` items are `{ from, to, fromPort? }`. `remove_links` items are `{ from, fromPort?, to? }`.
-- Get node IDs from `bento workflows get <id> --json`.
+- `remove_nodes` is a list of existing node ids. Links reconnect automatically.
+- `add_links` and `update_links` items are `{ from, to, fromPort? }`. `remove_links` items are
+  `{ from, fromPort?, to? }` and remove whatever leaves that port.
+- `move_nodes` (`{ id, move_after | move_before }`) is accepted, but the Flow Builder does not
+  apply moves yet. Avoid it; the CLI warns if you send it.
+- Limits: 64KB, 200 changes in total, summary up to 500 characters, at most 20 pending proposals
+  per flow (422 beyond that). camelCase keys (`addNodes`) are also accepted.
+- Get node ids and the revision from `bento workflows get <id>`. In `--json` output they are
+  `.data.attributes.triggers[].id`, `.data.attributes.nodes[].id`, and
+  `.data.attributes.diagram_revision`.
+- `--base-revision` is the 16-character `diagram_revision`. If the flow changed since then, the
+  API answers 409 and the CLI prints the current revision and tells you to re-fetch the flow and
+  rebuild the patch.
+- On success the CLI prints the proposal id, status, absolute review URL, expiry, and any
+  validator warnings. In `--json` output: `.data.id`, `.data.attributes.status`,
+  `.data.attributes.review_url`, `.data.attributes.warnings[]`, `.data.attributes.created_by`.
 
 ### workflows proposals
 
 ```bash
-bento workflows proposals 42     # pending + stale proposals
+bento workflows proposals 42     # pending + stale; then "<id> (by <label>): <review url>"
 ```
 
 ---

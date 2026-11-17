@@ -57,6 +57,7 @@ import type {
   TrackEventParams,
   UpdateSequenceEmailInput,
 } from "../types/sdk";
+import { normalizeSegment } from "../utils/segment-query";
 import {
   type ResolveSequenceIdResult,
   isSequenceId,
@@ -74,7 +75,9 @@ export class CLIError extends Error {
   constructor(
     message: string,
     public readonly code: SDKErrorCode,
-    public readonly statusCode?: number
+    public readonly statusCode?: number,
+    /** Parsed JSON error body from the API, when there was one. */
+    public readonly body?: Record<string, unknown>
   ) {
     super(message);
     this.name = "CLIError";
@@ -669,29 +672,34 @@ export class BentoClient {
   }
 
   async getSegments(page?: number): Promise<Segment[]> {
-    return this.fetchList(() =>
+    const segments = await this.fetchList(() =>
       this.apiGet<{ data?: Segment[] } | Segment[]>("/fetch/segments", { page })
     );
+    return segments.map(normalizeSegment);
   }
 
   async getSegment(id: string): Promise<Segment> {
-    return this.fetchData(() =>
+    const segment = await this.fetchData(() =>
       this.apiGet<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`)
     );
+    return normalizeSegment(segment);
   }
 
+  /** `name` and `visitor_event_query` are both required by the API. Answers 201. */
   async createSegment(input: SegmentInput): Promise<Segment> {
-    return this.fetchData(() =>
+    const segment = await this.fetchData(() =>
       this.apiPost<{ data?: Segment }>("/fetch/segments", { segment: input })
     );
+    return normalizeSegment(segment);
   }
 
   async updateSegment(id: string, input: SegmentInput): Promise<Segment> {
-    return this.fetchData(() =>
+    const segment = await this.fetchData(() =>
       this.apiPatch<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`, {
         segment: input,
       })
     );
+    return normalizeSegment(segment);
   }
 
   async uploadImage(input: ImageUploadInput): Promise<ImageUpload> {
@@ -724,20 +732,30 @@ export class BentoClient {
     workflowId: string,
     proposal: WorkflowProposalInput
   ): Promise<WorkflowProposal> {
-    return this.fetchData(() =>
+    const created = await this.fetchData(() =>
       this.apiPost<{ data?: WorkflowProposal }>(
         `/fetch/workflows/${encodeURIComponent(workflowId)}/proposals`,
         { proposal }
       )
     );
+    return this.withAbsoluteReviewUrl(created);
   }
 
   async getWorkflowProposals(workflowId: string): Promise<WorkflowProposal[]> {
-    return this.fetchList(() =>
+    const proposals = await this.fetchList(() =>
       this.apiGet<{ data?: WorkflowProposal[] } | WorkflowProposal[]>(
         `/fetch/workflows/${encodeURIComponent(workflowId)}/proposals`
       )
     );
+    return proposals.map((proposal) => this.withAbsoluteReviewUrl(proposal));
+  }
+
+  /** The API may return `/account/workflows/...`; resolve it against the app host. */
+  private withAbsoluteReviewUrl(proposal: WorkflowProposal): WorkflowProposal {
+    const reviewUrl = proposal.attributes.review_url;
+    if (!reviewUrl || /^https?:\/\//.test(reviewUrl)) return proposal;
+    const absolute = new URL(reviewUrl, new URL(this.apiBaseUrl).origin).toString();
+    return { ...proposal, attributes: { ...proposal.attributes, review_url: absolute } };
   }
 
   // ============================================================
@@ -1107,6 +1125,11 @@ export class BentoClient {
   }
 
   private createHttpError(status: number, body: string): CLIError {
+    const error = this.describeHttpError(status, body);
+    return new CLIError(error.message, error.code, error.statusCode, parseErrorBody(body));
+  }
+
+  private describeHttpError(status: number, body: string): CLIError {
     const detail = extractApiErrorDetail(body);
     const suffix = detail ? ` ${detail}` : "";
     switch (status) {
@@ -1204,6 +1227,17 @@ export function extractApiErrorDetail(body: string): string | null {
   return parts.length > 0 ? parts.join("; ") : null;
 }
 
+function parseErrorBody(body: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function unwrapData<T>(response: { data?: T } | null | undefined): T {
   if (!response || response.data === undefined || response.data === null) {
     throw new CLIError("Unexpected empty response from Bento API.", "API_ERROR");
@@ -1222,6 +1256,7 @@ function emailSourceBody(source: EmailSource): Record<string, unknown> {
         subject: source.subject,
         html: source.html,
         ...(source.previewText !== undefined ? { preview_text: source.previewText } : {}),
+        ...(source.type ? { type: source.type } : {}),
       };
   }
 }

@@ -194,6 +194,12 @@ describe("bento broadcasts update", () => {
     expect(harness.stderr()).toContain("Approval cancelled; broadcast unchanged.");
   });
 
+  it("sends --type alone to switch the editor", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    await harness.run(["broadcasts", "update", "456", "--type", "plain"]);
+    expect(updateSpy).toHaveBeenCalledWith("456", { type: "plain" });
+  });
+
   it("--unapprove skips the prompt", async () => {
     harness = createHarness(registerBroadcastsCommands);
     await harness.run(["broadcasts", "update", "456", "--unapprove"]);
@@ -216,7 +222,9 @@ describe("bento broadcasts update", () => {
   it.each([
     [[], "Nothing to update"],
     [["--approve", "--unapprove"], "only one of --approve or --unapprove"],
-    [["--type", "raw"], "--type only applies together with --html-file"],
+    [["--type", "fancy"], "--type must be one of: plain, raw"],
+    [["--batch-size", "9"], "--batch-size must be between 10 and 500000"],
+    [["--batch-size", "500001"], "--batch-size must be between 10 and 500000"],
     [["--author-id", "x"], "--author-id must be a positive integer"],
     [["--send-at", "next tuesday"], "--send-at must be an ISO 8601 timestamp"],
     [["--batch-size", "0"], "--batch-size must be a positive integer"],
@@ -312,6 +320,25 @@ describe("bento broadcasts create (new flags)", () => {
     await harness.run(["broadcasts", "create", "--name", "N", "--subject", "S"]);
 
     expect(harness.json().success).toBe(true);
+  });
+
+  it.each([
+    [["--batch-size", "5"], "Batch size must be between 10 and 500000"],
+    [["--from-email", "a@acme.com", "--author-id", "3"], "Use either --from-email or --author-id"],
+  ])("rejects create flags %p", async (args, message) => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run([
+      "broadcasts",
+      "create",
+      "--name",
+      "N",
+      "--subject",
+      "S",
+      ...args,
+    ]);
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain(message);
+    expect(createSpy).not.toHaveBeenCalled();
   });
 
   it("rejects a non-numeric segment id", async () => {

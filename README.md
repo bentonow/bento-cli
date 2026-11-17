@@ -218,7 +218,10 @@ bento broadcasts update 456 --unapprove
 ```
 
 `--include-tags` / `--exclude-tags` are sent as arrays. Broadcasts that are sending, sent, or
-canceled cannot be edited (the API returns 409).
+canceled cannot be edited (the API returns 409). `--type plain|raw` picks the editor and can be
+sent on its own; replacing the body of a visual-editor broadcast needs `--type`. `--batch-size`
+is 10 to 500000. On create, `--type html` and `markdown` use the raw editor, and `--from-email`
+and `--author-id` are mutually exclusive.
 
 ### Emails (render and test)
 
@@ -229,13 +232,21 @@ bento emails render --broadcast-id 456 --email jane@example.com   # render as a 
 bento emails render --subject "Hi {{ visitor.first_name }}" --html-file ./email.html \
   --preview-text "Peek" --html            # print rendered HTML instead of text
 bento emails render --template-id 123 --out ./rendered.html
+bento emails render --subject "Hi" --html-file ./plain.txt --type plain   # raw content editor: raw (default) or plain
+bento emails render --template-id 123 --json | jq ".data.attributes.valid"
 
 # Send a test (max 5 recipients; team members or the site's sending domains only)
 bento emails test --template-id 123 --to me@acme.com,teammate@acme.com
 bento emails test --broadcast-id 456 --to me@acme.com --dry-run   # render only
 ```
 
-Use exactly one source: `--template-id`, `--broadcast-id`, or `--subject` with `--html-file`.
+Use exactly one source: `--template-id`, `--broadcast-id`, or `--subject` with `--html-file`
+(`--preview-text` and `--type` only apply to raw content; subject + HTML + preview text must
+total 512KB or less). An unknown template, broadcast, or `--email` subscriber is a 404.
+`--json` output: `.success` (false when invalid), `.data.attributes.valid`,
+`.data.attributes.errors[]` (`{field, line, message}`), `.data.attributes.warnings[]`,
+`.data.attributes.rendered.{subject,preview_text,html,text,from,to}`, `.data.attributes.rendered_as`.
+Test sends: `.data.attributes.deliveries[].{to,status,job_id,queued_at}`.
 
 ### Authors
 
@@ -248,18 +259,25 @@ bento authors list            # IDs for --author-id
 ```bash
 bento segments list
 bento segments get 12 --json
-bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
+bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json   # both required
 bento segments update 12 --query-file vip.json
 ```
 
-`--query-file` holds the QueryBuilder group, the same shape as
-`data.attributes.visitor_event_query` from `bento segments get <id> --json`:
+`--query-file` holds the QueryBuilder group:
 
 ```json
 { "condition": "AND", "rules": [
-  { "id": "tags", "field": "tags", "operator": "contains", "value": "vip", "data": { "groupType": "visitor" } }
+  { "condition": "AND", "data": { "groupType": "visitor" }, "rules": [
+    { "id": "cached_tag_ids", "field": "cached_tag_ids", "type": "string", "operator": "contains", "value": "42" }
+  ] }
 ] }
 ```
+
+Tag rules use the `cached_tag_ids` filter with a tag **id** as the value, not the tag name. Every
+top-level rule or group needs `data.groupType` (`visitor` or `event`). The file may also be a
+saved `bento segments get <id> --json` output or a JSON string of the query; the CLI extracts the
+query. The API stores the query as a JSON string; the CLI parses it, so `segments get` prints it
+formatted and `--json` output has `.data.attributes.visitor_event_query` as an object.
 
 ### Images
 
@@ -278,7 +296,7 @@ bento workflows get 42                     # diagram revision + node IDs
 bento workflows propose 42 \
   --patch-file ./patch.json \
   --summary "Add a 2-day wait after signup" \
-  --base-revision abc123
+  --base-revision 3f9a1c0b7e2d4a65
 bento workflows proposals 42               # pending + stale proposals
 ```
 
@@ -288,23 +306,37 @@ bento workflows proposals 42               # pending + stale proposals
 {
   "add_nodes": [
     { "id": "wait_2d", "type": "delay", "config": { "delay_interval_count": 2, "delay_interval": "days" }, "insert_after": "trigger_1" },
-    { "id": "yes_email", "type": "email", "config": { "subject": "Welcome aboard" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
+    { "id": "tag_yes", "type": "tag", "config": { "tag_name": "engaged" }, "insert_after": "split_1", "insert_after_port": "bottom_0" }
   ],
-  "update_nodes": [ { "id": "email_3", "config": { "subject": "New subject" } } ],
+  "update_nodes": [ { "id": "email_3", "config": { "name": "Day 2 follow-up" } } ],
   "remove_nodes": [ "old_tag_1" ],
   "add_links": [ { "from": "wait_2d", "to": "email_3" } ],
   "remove_links": [ { "from": "split_1", "fromPort": "bottom_1" } ]
 }
 ```
 
-- `add_nodes` items need `id`, `type`, and `config`. Connect each non-trigger node with
-  `insert_after` (an existing node ID, or a new node that chains back to one) or `insert_before`.
-  For split nodes, `insert_after_port` is `bottom_0` (true) or `bottom_1` (false). Delay nodes need
-  `delay_interval_count` and `delay_interval` in `config`.
+- `add_nodes` items are `{ id, type, config, insert_after?, insert_after_port?, insert_before? }`.
+  New ids must not already exist on the flow. Connect each non-trigger node with `insert_after`
+  (an existing node id, or a new node that chains back to one) or `insert_before`. For split
+  nodes, `insert_after_port` is `bottom_0` (true branch) or `bottom_1` (false branch). Delay nodes
+  need `delay_interval_count` and `delay_interval` in `config`; tag nodes need `tag_name`.
 - `update_nodes` items are `{ id, config }`, and `config` holds only the keys you are changing.
-- `remove_nodes` is a list of existing node IDs. Links reconnect automatically.
-- `add_links` items are `{ from, to, fromPort? }`. `remove_links` items are `{ from, fromPort?, to? }`.
-- Get node IDs from `bento workflows get <id> --json`.
+- `remove_nodes` is a list of existing node ids. Links reconnect automatically.
+- `add_links` and `update_links` items are `{ from, to, fromPort? }`. `remove_links` items are
+  `{ from, fromPort?, to? }` and remove whatever leaves that port.
+- `move_nodes` (`{ id, move_after | move_before }`) is accepted, but the Flow Builder does not
+  apply moves yet. Avoid it; the CLI warns if you send it.
+- Limits: 64KB, 200 changes in total, summary up to 500 characters, at most 20 pending proposals
+  per flow (422 beyond that). camelCase keys (`addNodes`) are also accepted.
+- Get node ids and the revision from `bento workflows get <id>`. In `--json` output they are
+  `.data.attributes.triggers[].id`, `.data.attributes.nodes[].id`, and
+  `.data.attributes.diagram_revision`.
+- `--base-revision` is the 16-character `diagram_revision`. If the flow changed since then, the
+  API answers 409 and the CLI prints the current revision and tells you to re-fetch the flow and
+  rebuild the patch.
+- On success the CLI prints the proposal id, status, absolute review URL, expiry, and any
+  validator warnings. In `--json` output: `.data.id`, `.data.attributes.status`,
+  `.data.attributes.review_url`, `.data.attributes.warnings[]`, `.data.attributes.created_by`.
 
 `propose` never edits the flow. It creates a proposal and prints a review URL. The change only
 takes effect after someone accepts it in the Flow Builder.

@@ -18,11 +18,17 @@ const query = {
   condition: "AND",
   rules: [
     {
-      id: "tags",
-      field: "tags",
-      operator: "contains",
-      value: "vip",
+      condition: "AND",
       data: { groupType: "visitor" },
+      rules: [
+        {
+          id: "cached_tag_ids",
+          field: "cached_tag_ids",
+          type: "string",
+          operator: "contains",
+          value: "42",
+        },
+      ],
     },
   ],
 };
@@ -120,6 +126,7 @@ describe("bento segments", () => {
     await harness.run(["segments", "get", "12"]);
     expect(harness.stdout()).toContain("Engaged VIPs");
     expect(harness.stdout()).toContain('"operator": "contains"');
+    expect(harness.stdout()).toContain('"field": "cached_tag_ids"');
   });
 
   it("gets a segment as JSON", async () => {
@@ -175,8 +182,9 @@ describe("bento segments", () => {
 
   it.each([
     ["{not json", "Query file is not valid JSON"],
-    [[1, 2], "Query file must contain a JSON object"],
-    [{ condition: "AND" }, "must be a QueryBuilder group"],
+    [[1, 2], "Query file must hold a QueryBuilder group"],
+    [{ condition: "AND" }, "Query file must hold a QueryBuilder group"],
+    [{ data: { attributes: { visitor_event_query: "{nope" } } }, "must hold a QueryBuilder group"],
   ])("rejects query file %p", async (content, message) => {
     const file = await writeQuery(content);
     harness = createHarness(registerSegmentsCommands);
@@ -192,9 +200,39 @@ describe("bento segments", () => {
       new CLIError("Validation error: unknown field 'tagz'", "VALIDATION_ERROR", 422)
     );
     harness = createHarness(registerSegmentsCommands, "json");
-    const code = await harness.run(["segments", "create", "--name", "X"]);
+    const file = await writeQuery(query);
+    const code = await harness.run(["segments", "create", "--name", "X", "--query-file", file]);
 
     expect(code).toBe(1);
     expect(harness.json().error).toBe("Validation error: unknown field 'tagz'");
+  });
+
+  it("requires --query-file on create", async () => {
+    harness = createHarness(registerSegmentsCommands);
+    const code = await harness.run(["segments", "create", "--name", "X"]);
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("--query-file is required");
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["saved 'segments get --json' output", { success: true, data: segment }],
+    [
+      "saved raw API output with a string query",
+      {
+        data: {
+          ...segment,
+          attributes: { ...segment.attributes, visitor_event_query: JSON.stringify(query) },
+        },
+      },
+    ],
+    ["a JSON string of the query", JSON.stringify(JSON.stringify(query))],
+  ])("accepts %s as --query-file", async (_label, content) => {
+    const file = await writeQuery(content);
+    harness = createHarness(registerSegmentsCommands);
+    const code = await harness.run(["segments", "update", "12", "--query-file", file]);
+
+    expect(code).toBe(0);
+    expect(updateSpy).toHaveBeenCalledWith("12", { visitor_event_query: query });
   });
 });

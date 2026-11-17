@@ -11,6 +11,7 @@ import {
   validationError,
 } from "../utils/command";
 import { readSafeJsonFile } from "../utils/files";
+import { extractSegmentQuery } from "../utils/segment-query";
 
 interface SegmentWriteOptions {
   name?: string;
@@ -77,26 +78,27 @@ export function registerSegmentsCommands(program: Command): void {
       }
     });
 
-  addWriteOptions(segments.command("create").description("Create a segment")).action(
-    async (options: SegmentWriteOptions) => {
-      try {
-        if (!options.name?.trim()) throw validationError("--name is required.");
-        const input = await buildSegmentInput(options);
+  addWriteOptions(
+    segments.command("create").description("Create a segment (--name and --query-file)")
+  ).action(async (options: SegmentWriteOptions) => {
+    try {
+      if (!options.name?.trim()) throw validationError("--name is required.");
+      if (!options.queryFile) throw validationError("--query-file is required.");
+      const input = await buildSegmentInput(options);
 
-        output.startSpinner("Creating segment...");
-        const segment = await bento.createSegment(input);
-        output.stopSpinner("Segment created");
+      output.startSpinner("Creating segment...");
+      const segment = await bento.createSegment(input);
+      output.stopSpinner("Segment created");
 
-        if (output.isJson()) {
-          emitJson(segment);
-          return;
-        }
-        output.success(`Created segment ${segment.id} "${segment.attributes.name}"`);
-      } catch (error) {
-        exitWithError(error);
+      if (output.isJson()) {
+        emitJson(segment);
+        return;
       }
+      output.success(`Created segment ${segment.id} "${segment.attributes.name}"`);
+    } catch (error) {
+      exitWithError(error);
     }
-  );
+  });
 
   addWriteOptions(segments.command("update").description("Update a segment"))
     .argument("<id>", "Segment ID")
@@ -129,7 +131,7 @@ function addWriteOptions(command: Command): Command {
     .option("--description <text>", "Segment description")
     .option(
       "--query-file <path>",
-      "JSON file with the QueryBuilder group (data.attributes.visitor_event_query from 'segments get --json')"
+      "JSON file with the QueryBuilder group, or a saved 'segments get <id> --json' output"
     );
 }
 
@@ -144,13 +146,10 @@ async function buildSegmentInput(options: SegmentWriteOptions): Promise<SegmentI
 }
 
 function parseQuery(value: unknown): SegmentQuery {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw validationError("Query file must contain a JSON object.");
-  }
-  const query = value as SegmentQuery;
-  if (!Array.isArray(query.rules)) {
+  const query = extractSegmentQuery(value);
+  if (!query) {
     throw validationError(
-      'Query file must be a QueryBuilder group, e.g. {"condition":"AND","rules":[...]}.'
+      'Query file must hold a QueryBuilder group, e.g. {"condition":"AND","rules":[...]}, or saved \'segments get --json\' output.'
     );
   }
   return query;
@@ -168,8 +167,9 @@ function printSegment(segment: Segment): void {
   output.log(`Name:        ${a.name}`);
   output.log(`Description: ${a.description ?? "—"}`);
   output.log(`Created:     ${formatTimestamp(a.created_at)}`);
-  if (a.visitor_event_query) {
+  const query = a.visitor_event_query as unknown;
+  if (query) {
     output.log("Query:");
-    output.log(JSON.stringify(a.visitor_event_query, null, 2));
+    output.log(typeof query === "string" ? query : JSON.stringify(query, null, 2));
   }
 }

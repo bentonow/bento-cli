@@ -66,6 +66,8 @@ interface UpdateOptions {
 
 const MAX_HTML_BYTES = 524_288;
 const UPDATE_CONTENT_TYPES = ["plain", "raw"] as const;
+const MIN_BATCH_SIZE = 10;
+const MAX_BATCH_SIZE = 500_000;
 
 export function registerBroadcastsCommands(program: Command): void {
   const broadcasts = program.command("broadcasts").description("Manage email broadcasts");
@@ -240,7 +242,11 @@ export function registerBroadcastsCommands(program: Command): void {
     .requiredOption("-n, --name <name>", "Broadcast name (internal identifier)")
     .requiredOption("-s, --subject <subject>", "Email subject line")
     .option("-c, --content <content>", "Email content (HTML, plain text, or markdown)")
-    .option("-t, --type <type>", "Content type: plain, html, or markdown", "html")
+    .option(
+      "-t, --type <type>",
+      "Content type: plain, html, or markdown (html and markdown use the raw editor)",
+      "html"
+    )
     .option("--from-name <name>", "Sender name")
     .option("--from-email <email>", "Sender email address")
     .option("--include-tags <tags>", "Comma-separated tags to include")
@@ -265,6 +271,14 @@ export function registerBroadcastsCommands(program: Command): void {
         if (Number.isNaN(batchSize) || batchSize < 1) {
           output.error("Batch size must be a positive number.");
           process.exit(1);
+        }
+        if (batchSize < MIN_BATCH_SIZE || batchSize > MAX_BATCH_SIZE) {
+          throw validationError(
+            `Batch size must be between ${MIN_BATCH_SIZE} and ${MAX_BATCH_SIZE} emails per hour.`
+          );
+        }
+        if (options.fromEmail && options.authorId !== undefined) {
+          throw validationError("Use either --from-email or --author-id, not both.");
         }
 
         const input: BroadcastCreate = {
@@ -356,7 +370,10 @@ export function registerBroadcastsCommands(program: Command): void {
     .option("--name <name>", "Broadcast name")
     .option("--subject <subject>", "Email subject line")
     .option("--html-file <path>", "Replace the email body with this HTML file")
-    .option("--type <type>", `Content type: ${UPDATE_CONTENT_TYPES.join(", ")}`)
+    .option(
+      "--type <type>",
+      `Editor: ${UPDATE_CONTENT_TYPES.join(", ")} (required to replace a visual-editor body)`
+    )
     .option("--preview-text <text>", "Inbox preview text")
     .option("--author-id <id>", "Sender author ID from 'bento authors list'")
     .option("--segment-id <id>", "Segment ID to target ('none' clears it)")
@@ -406,9 +423,6 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
   if (options.approve && options.unapprove) {
     throw validationError("Use only one of --approve or --unapprove.");
   }
-  if (options.type !== undefined && !options.htmlFile) {
-    throw validationError("--type only applies together with --html-file.");
-  }
   if (
     options.type !== undefined &&
     !UPDATE_CONTENT_TYPES.includes(options.type as (typeof UPDATE_CONTENT_TYPES)[number])
@@ -421,8 +435,8 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
   if (options.subject !== undefined) changes.subject = options.subject;
   if (options.htmlFile) {
     changes.content = await readSafeTextFile(options.htmlFile, "HTML file", MAX_HTML_BYTES);
-    if (options.type) changes.type = options.type as BroadcastUpdate["type"];
   }
+  if (options.type) changes.type = options.type as BroadcastUpdate["type"];
   if (options.previewText !== undefined) changes.preview_text = options.previewText;
   const authorId = parsePositiveInt(options.authorId, "--author-id");
   if (authorId !== undefined) changes.author_id = authorId;
@@ -436,7 +450,7 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
   if (options.excludeTags !== undefined) changes.exclusive_tags = parseCsvList(options.excludeTags);
   if (options.sendAt !== undefined)
     changes.send_at = parseIsoTimestamp(options.sendAt, "--send-at");
-  const batchSize = parsePositiveInt(options.batchSize, "--batch-size");
+  const batchSize = parseBatchSize(options.batchSize);
   if (batchSize !== undefined) changes.batch_size_per_hour = batchSize;
   if (options.approve) changes.approved = true;
   if (options.unapprove) changes.approved = false;
@@ -445,6 +459,14 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
     throw validationError("Nothing to update. Pass at least one field flag (see --help).");
   }
   return changes;
+}
+
+function parseBatchSize(value: string | undefined): number | undefined {
+  const size = parsePositiveInt(value, "--batch-size");
+  if (size !== undefined && (size < MIN_BATCH_SIZE || size > MAX_BATCH_SIZE)) {
+    throw validationError(`--batch-size must be between ${MIN_BATCH_SIZE} and ${MAX_BATCH_SIZE}.`);
+  }
+  return size;
 }
 
 function requireId(id: string): string {

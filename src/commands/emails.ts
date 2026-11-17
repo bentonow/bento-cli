@@ -26,6 +26,7 @@ interface SourceOptions {
   subject?: string;
   htmlFile?: string;
   previewText?: string;
+  type?: string;
   email?: string;
 }
 
@@ -39,7 +40,9 @@ interface TestOptions extends SourceOptions {
   dryRun?: boolean;
 }
 
-const MAX_HTML_BYTES = 524_288;
+/** The API caps subject + html + preview_text together at 512KB. */
+const MAX_RAW_BYTES = 524_288;
+const RAW_TYPES = ["plain", "raw"] as const;
 const MAX_TEST_RECIPIENTS = 5;
 
 export function registerEmailsCommands(program: Command): void {
@@ -166,6 +169,7 @@ function addSourceOptions(command: Command): Command {
     .option("--subject <subject>", "Raw subject (use with --html-file)")
     .option("--html-file <path>", "Raw HTML body file (use with --subject)")
     .option("--preview-text <text>", "Raw preview text (use with --subject and --html-file)")
+    .option("--type <type>", "Editor for raw content: raw (default) or plain")
     .option("--email <email>", "Render as this subscriber (default: the site's sample subscriber)");
 }
 
@@ -173,7 +177,8 @@ export async function resolveEmailSource(options: SourceOptions): Promise<EmailS
   const hasRaw =
     options.subject !== undefined ||
     options.htmlFile !== undefined ||
-    options.previewText !== undefined;
+    options.previewText !== undefined ||
+    options.type !== undefined;
   const chosen = [options.templateId !== undefined, options.broadcastId !== undefined, hasRaw];
   if (chosen.filter(Boolean).length !== 1) {
     throw validationError(
@@ -196,12 +201,24 @@ export async function resolveEmailSource(options: SourceOptions): Promise<EmailS
   if (!options.subject || !options.htmlFile) {
     throw validationError("Raw emails need both --subject and --html-file.");
   }
-  const html = await readSafeTextFile(options.htmlFile, "HTML file", MAX_HTML_BYTES);
+  const type = options.type;
+  if (type !== undefined && !RAW_TYPES.includes(type as (typeof RAW_TYPES)[number])) {
+    throw validationError(`--type must be one of: ${RAW_TYPES.join(", ")}`);
+  }
+  const html = await readSafeTextFile(options.htmlFile, "HTML file", MAX_RAW_BYTES);
+  const totalBytes = [options.subject, html, options.previewText ?? ""].reduce(
+    (sum, part) => sum + Buffer.byteLength(part, "utf8"),
+    0
+  );
+  if (totalBytes > MAX_RAW_BYTES) {
+    throw validationError("--subject, --html-file and --preview-text must total at most 512KB.");
+  }
   return {
     kind: "raw",
     subject: options.subject,
     html,
     ...(options.previewText !== undefined ? { previewText: options.previewText } : {}),
+    ...(type ? { type: type as (typeof RAW_TYPES)[number] } : {}),
   };
 }
 
