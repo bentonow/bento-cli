@@ -685,14 +685,7 @@ export class BentoClient {
     return normalizeSegment(segment);
   }
 
-  /** `name` and `visitor_event_query` are both required by the API. Answers 201. */
-  async createSegment(input: SegmentInput): Promise<Segment> {
-    const segment = await this.fetchData(() =>
-      this.apiPost<{ data?: Segment }>("/fetch/segments", { segment: input })
-    );
-    return normalizeSegment(segment);
-  }
-
+  /** The API cannot create segments yet; they are created in the Bento app. */
   async updateSegment(id: string, input: SegmentInput): Promise<Segment> {
     const segment = await this.fetchData(() =>
       this.apiPatch<{ data?: Segment }>(`/fetch/segments/${encodeURIComponent(id)}`, {

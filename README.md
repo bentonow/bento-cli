@@ -259,9 +259,11 @@ bento authors list            # IDs for --author-id
 ```bash
 bento segments list
 bento segments get 12 --json
-bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json   # both required
-bento segments update 12 --query-file vip.json
+bento segments update 12 --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
 ```
+
+Segments can't be created through the API yet (it answers 501). Create the segment in the
+Bento app, then edit it with `bento segments update <id>`.
 
 `--query-file` holds the QueryBuilder group:
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { Command } from "commander";
 
 import { registerAuthorsCommands } from "../../commands/authors";
 import { registerSegmentsCommands } from "../../commands/segments";
@@ -88,17 +89,14 @@ describe("bento segments", () => {
   let harness: Harness;
   let tempDir: string;
   let spies: Array<ReturnType<typeof spyOn>>;
-  let createSpy: ReturnType<typeof spyOn>;
   let updateSpy: ReturnType<typeof spyOn>;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(process.cwd(), ".tmp-segments-test-"));
-    createSpy = spyOn(bento, "createSegment").mockResolvedValue(segment);
     updateSpy = spyOn(bento, "updateSegment").mockResolvedValue(segment);
     spies = [
       spyOn(bento, "getSegments").mockResolvedValue([segment]),
       spyOn(bento, "getSegment").mockResolvedValue(segment),
-      createSpy,
       updateSpy,
     ];
   });
@@ -135,42 +133,12 @@ describe("bento segments", () => {
     expect(harness.json<Segment>().data.id).toBe("12");
   });
 
-  it("creates a segment from a query file", async () => {
-    const file = await writeQuery(query);
-    harness = createHarness(registerSegmentsCommands);
-    const code = await harness.run([
-      "segments",
-      "create",
-      "--name",
-      "Engaged VIPs",
-      "--description",
-      "VIPs",
-      "--query-file",
-      file,
-    ]);
-
-    expect(code).toBe(0);
-    expect(createSpy).toHaveBeenCalledWith({
-      name: "Engaged VIPs",
-      description: "VIPs",
-      visitor_event_query: query,
-    });
-    expect(harness.stdout()).toContain('Created segment 12 "Engaged VIPs"');
-  });
-
   it("updates only the given fields and emits JSON", async () => {
     harness = createHarness(registerSegmentsCommands, "json");
     await harness.run(["segments", "update", "12", "--description", "New"]);
 
     expect(updateSpy).toHaveBeenCalledWith("12", { description: "New" });
     expect(harness.json<Segment>().success).toBe(true);
-  });
-
-  it("requires --name on create", async () => {
-    harness = createHarness(registerSegmentsCommands);
-    const code = await harness.run(["segments", "create"]);
-    expect(code).toBe(1);
-    expect(harness.stderr()).toContain("--name is required");
   });
 
   it("requires a field on update", async () => {
@@ -188,31 +156,40 @@ describe("bento segments", () => {
   ])("rejects query file %p", async (content, message) => {
     const file = await writeQuery(content);
     harness = createHarness(registerSegmentsCommands);
-    const code = await harness.run(["segments", "create", "--name", "X", "--query-file", file]);
+    const code = await harness.run(["segments", "update", "12", "--query-file", file]);
 
     expect(code).toBe(1);
     expect(harness.stderr()).toContain(message);
-    expect(createSpy).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
   it("surfaces server validation errors", async () => {
-    createSpy.mockRejectedValue(
+    updateSpy.mockRejectedValue(
       new CLIError("Validation error: unknown field 'tagz'", "VALIDATION_ERROR", 422)
     );
     harness = createHarness(registerSegmentsCommands, "json");
     const file = await writeQuery(query);
-    const code = await harness.run(["segments", "create", "--name", "X", "--query-file", file]);
+    const code = await harness.run(["segments", "update", "12", "--query-file", file]);
 
     expect(code).toBe(1);
     expect(harness.json().error).toBe("Validation error: unknown field 'tagz'");
   });
 
-  it("requires --query-file on create", async () => {
+  it("has no create command (segments are created in the Bento app)", async () => {
     harness = createHarness(registerSegmentsCommands);
-    const code = await harness.run(["segments", "create", "--name", "X"]);
-    expect(code).toBe(1);
-    expect(harness.stderr()).toContain("--query-file is required");
-    expect(createSpy).not.toHaveBeenCalled();
+    await expect(harness.run(["segments", "create", "--name", "X"])).rejects.toThrow(
+      "unknown command"
+    );
+  });
+
+  it("update help says to create segments in the Bento app first", async () => {
+    harness = createHarness(registerSegmentsCommands);
+    const program = new Command();
+    registerSegmentsCommands(program);
+    const update = program.commands
+      .find((command) => command.name() === "segments")
+      ?.commands.find((command) => command.name() === "update");
+    expect(update?.description()).toContain("Create segments in the Bento app first");
   });
 
   it.each([

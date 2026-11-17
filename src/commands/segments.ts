@@ -79,28 +79,12 @@ export function registerSegmentsCommands(program: Command): void {
     });
 
   addWriteOptions(
-    segments.command("create").description("Create a segment (--name and --query-file)")
-  ).action(async (options: SegmentWriteOptions) => {
-    try {
-      if (!options.name?.trim()) throw validationError("--name is required.");
-      if (!options.queryFile) throw validationError("--query-file is required.");
-      const input = await buildSegmentInput(options);
-
-      output.startSpinner("Creating segment...");
-      const segment = await bento.createSegment(input);
-      output.stopSpinner("Segment created");
-
-      if (output.isJson()) {
-        emitJson(segment);
-        return;
-      }
-      output.success(`Created segment ${segment.id} "${segment.attributes.name}"`);
-    } catch (error) {
-      exitWithError(error);
-    }
-  });
-
-  addWriteOptions(segments.command("update").description("Update a segment"))
+    segments
+      .command("update")
+      .description(
+        "Update a segment's name, description, or query. Create segments in the Bento app first; the API cannot create them yet."
+      )
+  )
     .argument("<id>", "Segment ID")
     .action(async (id: string, options: SegmentWriteOptions) => {
       try {

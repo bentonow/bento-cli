@@ -316,16 +316,7 @@ describe("BentoClient HTTP helpers", () => {
       });
     });
 
-    it("createSegment and updateSegment wrap the input in `segment`", async () => {
-      const query = { condition: "AND", rules: [] };
-      await client.createSegment({ name: "VIPs", visitor_event_query: query });
-      expect(lastRequest().method).toBe("POST");
-      expect(lastRequest().url.pathname).toBe("/api/v1/fetch/segments");
-      expect(lastRequest().body).toEqual({
-        site_uuid: "site-123",
-        segment: { name: "VIPs", visitor_event_query: query },
-      });
-
+    it("updateSegment PATCHes the input wrapped in `segment`", async () => {
       await client.updateSegment("12", { description: "d" });
       expect(lastRequest().method).toBe("PATCH");
       expect(lastRequest().url.pathname).toBe("/api/v1/fetch/segments/12");

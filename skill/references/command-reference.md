@@ -505,12 +505,14 @@ bento segments get 12
 bento segments get 12 --json     # .data.attributes.visitor_event_query is parsed to an object
 ```
 
-### segments create / update
+### segments update
 
 ```bash
-bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
-bento segments update 12 --query-file vip.json
+bento segments update 12 --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
 ```
+
+Segments can't be created through the API yet (it answers 501). Create the segment in the
+Bento app, then edit it with `bento segments update <id>`.
 
 `--query-file` is a JSON QueryBuilder group:
 
@@ -531,9 +533,9 @@ formatted and `--json` output has `.data.attributes.visitor_event_query` as an o
 **Options**:
 | Option | Description |
 |--------|-------------|
-| `--name <name>` | Segment name (required for create) |
+| `--name <name>` | Segment name |
 | `--description <text>` | Description |
-| `--query-file <path>` | QueryBuilder JSON or saved `segments get --json` output (required for create; validated by the API) |
+| `--query-file <path>` | QueryBuilder JSON or saved `segments get --json` output (validated by the API) |
 
 ---
 

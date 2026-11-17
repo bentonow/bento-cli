@@ -176,8 +176,7 @@ domains.
 bento authors list                                          # IDs for --author-id
 bento segments list
 bento segments get 12 --json                                # .data.attributes.visitor_event_query (object)
-bento segments create --name "Engaged VIPs" --query-file vip.json   # both required
-bento segments update 12 --description "VIPs who clicked"
+bento segments update 12 --description "VIPs who clicked" --query-file vip.json   # create it in the Bento app first
 bento images upload ./hero.png                              # png/jpg/gif/webp, max 1MB, 20/site/day
 ```
 
