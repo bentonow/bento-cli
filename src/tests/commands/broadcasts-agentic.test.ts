@@ -191,7 +191,7 @@ describe("bento broadcasts update", () => {
 
     expect(code).toBe(1);
     expect(updateSpy).not.toHaveBeenCalled();
-    expect(harness.stderr()).toContain("Broadcast not approved");
+    expect(harness.stderr()).toContain("Approval cancelled; broadcast unchanged.");
   });
 
   it("--unapprove skips the prompt", async () => {

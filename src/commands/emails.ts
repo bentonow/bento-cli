@@ -223,6 +223,7 @@ function printRender(render: EmailRender, body: "html" | "text"): void {
   printIssues("Warnings", warnings, chalk.yellow("⚠"));
 
   if (!rendered) {
+    output.newline();
     output.log(chalk.dim("Not rendered: fix the errors above first."));
     return;
   }

@@ -378,7 +378,7 @@ export function registerBroadcastsCommands(program: Command): void {
             { confirm: Boolean(options.confirm) }
           );
           if (!confirmed) {
-            output.warn("Broadcast not approved. Re-run with --confirm to approve.");
+            output.warn("Approval cancelled; broadcast unchanged.");
             process.exitCode = 1;
             return;
           }
