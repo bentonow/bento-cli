@@ -32,7 +32,9 @@ describe("bento CLI", () => {
   });
 
   it("errors with JSON payload when --json is passed without a command", () => {
-    const result = spawnSync(["bun", "run", "src/cli.ts", "--json"]);
+    const result = spawnSync(["bun", "run", "src/cli.ts", "--json"], {
+      env: { ...process.env, FORCE_COLOR: "0" },
+    });
     const stderr = result.stderr.toString().trim();
     expect(result.exitCode).toBe(2);
     const payload = JSON.parse(stderr);
