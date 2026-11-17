@@ -70,6 +70,15 @@ export function parseIsoTimestamp(value: string, flag: string): string {
   return parsed.toISOString();
 }
 
+/** Bento refuses past send times, so check before the request. */
+export function parseFutureTimestamp(value: string, flag: string, now = new Date()): string {
+  const iso = parseIsoTimestamp(value, flag);
+  if (new Date(iso).getTime() <= now.getTime()) {
+    throw validationError(`${flag} must be in the future (got ${iso}).`);
+  }
+  return iso;
+}
+
 export function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);

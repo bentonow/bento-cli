@@ -611,7 +611,7 @@ export class BentoClient {
     );
   }
 
-  /** Only draft, scheduled, and paused broadcasts are editable (409 otherwise). */
+  /** Only draft and scheduled broadcasts are editable (409 otherwise). */
   async updateBroadcast(id: string, changes: BroadcastUpdate): Promise<BroadcastDetail> {
     return this.fetchData(() =>
       this.apiPatch<{ data?: BroadcastDetail }>(`/fetch/broadcasts/${encodeURIComponent(id)}`, {

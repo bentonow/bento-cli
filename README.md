@@ -207,18 +207,24 @@ bento broadcasts create \
 # Show one broadcast (content, audience, schedule, status)
 bento broadcasts get 456
 
-# Edit a draft, scheduled, or paused broadcast
+# Edit a draft or scheduled broadcast
 bento broadcasts update 456 --subject "New subject" --html-file ./emails/jan.html
 bento broadcasts update 456 --include-tags "vip,beta" --exclude-tags ""   # "" clears
 bento broadcasts update 456 --segment-id none                             # clear segment
 
-# Approve for sending (asks first; --confirm or BENTO_AUTO_CONFIRM=true skips the prompt)
+# Approve for sending. The prompt shows the time it will go out at; --confirm or
+# BENTO_AUTO_CONFIRM=true skips the prompt. Needs a future send time (stored or --send-at).
 bento broadcasts update 456 --approve
+bento broadcasts update 456 --approve --send-at 2026-12-01T09:00:00Z
 bento broadcasts update 456 --unapprove
 ```
 
-`--include-tags` / `--exclude-tags` are sent as arrays. Broadcasts that are sending, sent, or
-canceled cannot be edited (the API returns 409). `--type plain|raw` picks the editor and can be
+Only draft and scheduled broadcasts can be edited. Paused broadcasts have already started sending,
+so the API refuses them with 409, like sending, sent, and canceled ones. `--send-at` must be in the
+future (checked before the request). `--approve` refuses a broadcast whose send time is missing or
+has passed; pass a future `--send-at` in the same command.
+
+`--include-tags` / `--exclude-tags` are sent as arrays. `--type plain|raw` picks the editor and can be
 sent on its own; replacing the body of a visual-editor broadcast needs `--type`. `--batch-size`
 is 10 to 500000. On create, `--type html` and `markdown` use the raw editor, and `--from-email`
 and `--author-id` are mutually exclusive.

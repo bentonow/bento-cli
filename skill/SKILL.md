@@ -149,8 +149,10 @@ bento broadcasts update 456 --include-tags "" --segment-id none   # clear audien
 bento broadcasts update 456 --approve --confirm                   # approve for sending
 ```
 
-Only draft, scheduled, and paused broadcasts are editable (409 otherwise). `update --type plain|raw`
-can be sent alone; `--batch-size` is 10 to 500000. `--approve` prompts
+Only draft and scheduled broadcasts are editable; paused (already sending), sending, sent, and
+canceled return 409. `--send-at` must be in the future. `--approve` needs a future send time,
+stored or passed as `--send-at` in the same command, and its prompt shows when it will send.
+`update --type plain|raw` can be sent alone; `--batch-size` is 10 to 500000. `--approve` prompts
 unless `--confirm` or `BENTO_AUTO_CONFIRM=true`. Never approve without an explicit request.
 
 ### Emails (render and test)

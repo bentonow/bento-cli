@@ -5,7 +5,7 @@
  * - bento broadcasts list - List all broadcasts
  * - bento broadcasts get <id> - Show one broadcast
  * - bento broadcasts create --name <n> --subject <s> [options] - Create a new broadcast draft
- * - bento broadcasts update <id> [options] - Edit a draft, scheduled, or paused broadcast
+ * - bento broadcasts update <id> [options] - Edit a draft or scheduled broadcast
  */
 
 import chalk from "chalk";
@@ -20,7 +20,7 @@ import {
   exitWithError,
   formatTimestamp,
   parseCsvList,
-  parseIsoTimestamp,
+  parseFutureTimestamp,
   parsePositiveInt,
   validationError,
 } from "../utils/command";
@@ -255,7 +255,7 @@ export function registerBroadcastsCommands(program: Command): void {
     .option("--preview-text <text>", "Inbox preview text")
     .option("--author-id <id>", "Sender author ID from 'bento authors list'")
     .option("--segment-id <id>", "Segment ID to target")
-    .option("--send-at <iso>", "Schedule time (ISO 8601)")
+    .option("--send-at <iso>", "Schedule time (ISO 8601, must be in the future)")
     .action(async (options: CreateOptions) => {
       try {
         // Validate type
@@ -299,7 +299,7 @@ export function registerBroadcastsCommands(program: Command): void {
         if (authorId !== undefined) input.author_id = authorId;
         const segmentId = parsePositiveInt(options.segmentId, "--segment-id");
         if (segmentId !== undefined) input.segment_id = segmentId;
-        if (options.sendAt) input.send_at = parseIsoTimestamp(options.sendAt, "--send-at");
+        if (options.sendAt) input.send_at = parseFutureTimestamp(options.sendAt, "--send-at");
 
         output.startSpinner("Creating broadcast...");
 
@@ -365,7 +365,9 @@ export function registerBroadcastsCommands(program: Command): void {
 
   broadcasts
     .command("update")
-    .description("Update a draft, scheduled, or paused broadcast")
+    .description(
+      "Update a draft or scheduled broadcast. Paused, sending, sent, and canceled broadcasts can't be edited."
+    )
     .argument("<id>", "Broadcast ID")
     .option("--name <name>", "Broadcast name")
     .option("--subject <subject>", "Email subject line")
@@ -379,9 +381,12 @@ export function registerBroadcastsCommands(program: Command): void {
     .option("--segment-id <id>", "Segment ID to target ('none' clears it)")
     .option("--include-tags <tags>", "Comma-separated tags to include ('' clears)")
     .option("--exclude-tags <tags>", "Comma-separated tags to exclude ('' clears)")
-    .option("--send-at <iso>", "Schedule time (ISO 8601)")
+    .option("--send-at <iso>", "Schedule time (ISO 8601, must be in the future)")
     .option("--batch-size <size>", "Emails to send per hour")
-    .option("--approve", "Approve the broadcast for sending (asks for confirmation)")
+    .option(
+      "--approve",
+      "Approve for sending at its future send time, or --send-at (asks for confirmation)"
+    )
     .option("--unapprove", "Revoke approval")
     .option("--confirm", "Skip the approval confirmation prompt")
     .action(async (id: string, options: UpdateOptions) => {
@@ -390,8 +395,9 @@ export function registerBroadcastsCommands(program: Command): void {
         const changes = await buildBroadcastUpdate(options);
 
         if (changes.approved === true) {
+          const sendAt = await resolveApprovalSendTime(broadcastId, changes.send_at);
           const confirmed = await safety.confirmAction(
-            `Approve broadcast ${broadcastId} for sending?`,
+            `Approve broadcast ${broadcastId} to send at ${formatTimestamp(sendAt)} (${sendAt})?`,
             { confirm: Boolean(options.confirm) }
           );
           if (!confirmed) {
@@ -402,7 +408,11 @@ export function registerBroadcastsCommands(program: Command): void {
         }
 
         output.startSpinner("Updating broadcast...");
-        const broadcast = await bento.updateBroadcast(broadcastId, changes);
+        const broadcast = await bento
+          .updateBroadcast(broadcastId, changes)
+          .catch((error: unknown) => {
+            throw explainUpdateError(error);
+          });
         output.stopSpinner("Broadcast updated");
 
         if (output.isJson()) {
@@ -448,8 +458,9 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
   }
   if (options.includeTags !== undefined) changes.inclusive_tags = parseCsvList(options.includeTags);
   if (options.excludeTags !== undefined) changes.exclusive_tags = parseCsvList(options.excludeTags);
-  if (options.sendAt !== undefined)
-    changes.send_at = parseIsoTimestamp(options.sendAt, "--send-at");
+  if (options.sendAt !== undefined) {
+    changes.send_at = parseFutureTimestamp(options.sendAt, "--send-at");
+  }
   const batchSize = parseBatchSize(options.batchSize);
   if (batchSize !== undefined) changes.batch_size_per_hour = batchSize;
   if (options.approve) changes.approved = true;
@@ -459,6 +470,45 @@ async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUp
     throw validationError("Nothing to update. Pass at least one field flag (see --help).");
   }
   return changes;
+}
+
+/**
+ * Bento only approves a broadcast whose send time is in the future, so find the time it will go out
+ * at (the new --send-at, else the stored one) and refuse early when there isn't one.
+ */
+async function resolveApprovalSendTime(broadcastId: string, newSendAt?: string): Promise<string> {
+  if (newSendAt) return newSendAt;
+  const current = await bento.getBroadcast(broadcastId);
+  const stored = current.attributes.send_at;
+  if (!stored || new Date(stored).getTime() <= Date.now()) {
+    throw validationError(
+      `Broadcast ${broadcastId} has ${stored ? `a send time in the past (${stored})` : "no send time"}. Approve it with a future time: --approve --send-at <ISO 8601 time>.`
+    );
+  }
+  return stored;
+}
+
+/** Add the CLI-side next step to the API's refusals. */
+function explainUpdateError(error: unknown): unknown {
+  if (!(error instanceof CLIError)) return error;
+  if (error.statusCode === 409 && /can no longer be edited/i.test(error.message)) {
+    return new CLIError(
+      `${error.message}. Only draft and scheduled broadcasts can be changed through the API; manage paused or sending broadcasts in the Bento app.`,
+      error.code,
+      409,
+      error.body
+    );
+  }
+  if (
+    error.statusCode === 422 &&
+    /send time has passed|send_at must be in the future/i.test(error.message)
+  ) {
+    const message = error.message
+      .replace("Pass a future send_at", "Pass a future --send-at")
+      .replace("send_at must be in the future", "--send-at must be in the future");
+    return new CLIError(message, error.code, 422, error.body);
+  }
+  return error;
 }
 
 function parseBatchSize(value: string | undefined): number | undefined {

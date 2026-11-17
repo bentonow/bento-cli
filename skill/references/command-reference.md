@@ -402,19 +402,25 @@ bento broadcasts create \
 | `--segment-id <id>` | Segment to target |
 | `--include-tags <tags>` | Comma-separated tags to include (sent as an array) |
 | `--exclude-tags <tags>` | Comma-separated tags to exclude (sent as an array) |
-| `--send-at <iso>` | Schedule time (ISO 8601) |
+| `--send-at <iso>` | Schedule time (ISO 8601, must be in the future) |
 | `--batch-size <n>` | Emails per hour, 10-500000 (default 1000) |
 
 ### broadcasts update
 
-Update a draft, scheduled, or paused broadcast. Sending, sent, and canceled broadcasts return 409.
+Update a draft or scheduled broadcast. Paused (already started sending), sending, sent, and
+canceled broadcasts return 409; manage those in the Bento app.
 
 ```bash
 bento broadcasts update 456 --subject "New subject" --html-file ./jan.html
 bento broadcasts update 456 --include-tags "vip,beta" --exclude-tags ""
 bento broadcasts update 456 --segment-id none
 bento broadcasts update 456 --approve --confirm
+bento broadcasts update 456 --approve --send-at 2026-12-01T09:00:00Z
 ```
+
+`--approve` needs a future send time: the stored one, or `--send-at` in the same command. Without
+one the CLI stops before calling the API; the API would answer 422 "This broadcast's send time has
+passed". The confirmation prompt shows the time the broadcast will go out at.
 
 **Options**:
 | Option | Description |
@@ -427,9 +433,9 @@ bento broadcasts update 456 --approve --confirm
 | `--author-id <id>` | Sender author ID |
 | `--segment-id <id>` | Segment ID, or `none` to clear |
 | `--include-tags <tags>` / `--exclude-tags <tags>` | Comma-separated; `""` clears |
-| `--send-at <iso>` | Schedule time (ISO 8601) |
+| `--send-at <iso>` | Schedule time (ISO 8601, must be in the future) |
 | `--batch-size <n>` | Emails per hour, 10-500000 |
-| `--approve` / `--unapprove` | Approve for sending (prompts) or revoke approval |
+| `--approve` / `--unapprove` | Approve for sending at the future send time (prompts) or revoke approval |
 | `--confirm` | Skip the approval prompt |
 
 ---

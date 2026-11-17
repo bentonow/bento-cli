@@ -35,6 +35,8 @@ const detail: BroadcastDetail = {
   },
 };
 
+const STORED_SEND_AT = "2099-12-01T09:00:00.000Z";
+
 describe("bento broadcasts get", () => {
   let harness: Harness;
   let getSpy: ReturnType<typeof spyOn>;
@@ -86,17 +88,21 @@ describe("bento broadcasts update", () => {
   let tempDir: string;
   let updateSpy: ReturnType<typeof spyOn>;
   let confirmSpy: ReturnType<typeof spyOn>;
+  let getSpy: ReturnType<typeof spyOn>;
+  const scheduled = { ...detail, attributes: { ...detail.attributes, send_at: STORED_SEND_AT } };
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(process.cwd(), ".tmp-broadcasts-test-"));
     updateSpy = spyOn(bento, "updateBroadcast").mockResolvedValue(detail);
     confirmSpy = spyOn(safety, "confirmAction").mockResolvedValue(true);
+    getSpy = spyOn(bento, "getBroadcast").mockResolvedValue(scheduled);
   });
 
   afterEach(async () => {
     harness.restore();
     updateSpy.mockRestore();
     confirmSpy.mockRestore();
+    getSpy.mockRestore();
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -128,7 +134,7 @@ describe("bento broadcasts update", () => {
       "--exclude-tags",
       "churned",
       "--send-at",
-      "2026-11-20T09:00:00Z",
+      "2099-11-20T09:00:00Z",
       "--batch-size",
       "500",
     ]);
@@ -144,7 +150,7 @@ describe("bento broadcasts update", () => {
       segment_id: 12,
       inclusive_tags: ["vip", "beta"],
       exclusive_tags: ["churned"],
-      send_at: "2026-11-20T09:00:00.000Z",
+      send_at: "2099-11-20T09:00:00.000Z",
       batch_size_per_hour: 500,
     });
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -166,15 +172,97 @@ describe("bento broadcasts update", () => {
     expect(updateSpy).toHaveBeenCalledWith("456", { segment_id: null, inclusive_tags: [] });
   });
 
-  it("asks for confirmation before --approve", async () => {
+  it("asks for confirmation before --approve, showing the stored send time", async () => {
     harness = createHarness(registerBroadcastsCommands);
     const code = await harness.run(["broadcasts", "update", "456", "--approve"]);
 
     expect(code).toBe(0);
-    expect(confirmSpy).toHaveBeenCalledWith("Approve broadcast 456 for sending?", {
-      confirm: false,
-    });
+    expect(getSpy).toHaveBeenCalledWith("456");
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^Approve broadcast 456 to send at .+ \(2099-12-01T09:00:00\.000Z\)\?$/
+      ),
+      { confirm: false }
+    );
     expect(updateSpy).toHaveBeenCalledWith("456", { approved: true });
+  });
+
+  it("shows the new --send-at in the approval prompt without fetching", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    await harness.run([
+      "broadcasts",
+      "update",
+      "456",
+      "--approve",
+      "--send-at",
+      "2099-11-20T09:00:00Z",
+    ]);
+
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining("(2099-11-20T09:00:00.000Z)"),
+      expect.anything()
+    );
+    expect(updateSpy).toHaveBeenCalledWith("456", {
+      send_at: "2099-11-20T09:00:00.000Z",
+      approved: true,
+    });
+  });
+
+  it.each([
+    [null, "has no send time"],
+    ["2020-01-01T00:00:00Z", "has a send time in the past (2020-01-01T00:00:00Z)"],
+  ])("refuses --approve without a future send time (stored %p)", async (stored, message) => {
+    getSpy.mockResolvedValue({ ...detail, attributes: { ...detail.attributes, send_at: stored } });
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(["broadcasts", "update", "456", "--approve", "--confirm"]);
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain(message);
+    expect(harness.stderr()).toContain("--approve --send-at");
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("explains a 409 for a paused broadcast", async () => {
+    updateSpy.mockRejectedValue(
+      new CLIError(
+        "Request failed (409): This broadcast is paused and can no longer be edited",
+        "UNKNOWN",
+        409
+      )
+    );
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run(["broadcasts", "update", "456", "--name", "x"]);
+
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("This broadcast is paused and can no longer be edited");
+    expect(harness.stderr()).toContain("Only draft and scheduled broadcasts can be changed");
+  });
+
+  it("rewrites the API's send-time refusal in CLI terms", async () => {
+    updateSpy.mockRejectedValue(
+      new CLIError(
+        "Validation error: This broadcast's send time has passed. Pass a future send_at to approve it",
+        "VALIDATION_ERROR",
+        422
+      )
+    );
+    harness = createHarness(registerBroadcastsCommands, "json");
+    const code = await harness.run([
+      "broadcasts",
+      "update",
+      "456",
+      "--approve",
+      "--confirm",
+      "--send-at",
+      "2099-11-20T09:00:00Z",
+    ]);
+
+    expect(code).toBe(1);
+    expect(harness.json().error).toBe(
+      "Validation error: This broadcast's send time has passed. Pass a future --send-at to approve it"
+    );
   });
 
   it("passes --confirm through to the safety prompt", async () => {
@@ -227,6 +315,7 @@ describe("bento broadcasts update", () => {
     [["--batch-size", "500001"], "--batch-size must be between 10 and 500000"],
     [["--author-id", "x"], "--author-id must be a positive integer"],
     [["--send-at", "next tuesday"], "--send-at must be an ISO 8601 timestamp"],
+    [["--send-at", "2020-01-01T00:00:00Z"], "--send-at must be in the future"],
     [["--batch-size", "0"], "--batch-size must be a positive integer"],
   ])("rejects %p", async (args, message) => {
     harness = createHarness(registerBroadcastsCommands);
@@ -287,7 +376,7 @@ describe("bento broadcasts create (new flags)", () => {
       "--preview-text",
       "Peek",
       "--send-at",
-      "2026-11-20T09:00:00Z",
+      "2099-11-20T09:00:00Z",
     ]);
 
     expect(code).toBe(0);
@@ -302,7 +391,7 @@ describe("bento broadcasts create (new flags)", () => {
       preview_text: "Peek",
       author_id: 3,
       segment_id: 12,
-      send_at: "2026-11-20T09:00:00.000Z",
+      send_at: "2099-11-20T09:00:00.000Z",
     });
   });
 
@@ -338,6 +427,23 @@ describe("bento broadcasts create (new flags)", () => {
     ]);
     expect(code).toBe(1);
     expect(harness.stderr()).toContain(message);
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a past --send-at on create", async () => {
+    harness = createHarness(registerBroadcastsCommands);
+    const code = await harness.run([
+      "broadcasts",
+      "create",
+      "--name",
+      "N",
+      "--subject",
+      "S",
+      "--send-at",
+      "2020-01-01T00:00:00Z",
+    ]);
+    expect(code).toBe(1);
+    expect(harness.stderr()).toContain("--send-at must be in the future");
     expect(createSpy).not.toHaveBeenCalled();
   });
 
