@@ -128,6 +128,10 @@ bento subscribers unsubscribe --file unsubscribes.csv --confirm
 
 # Re-subscribe (restore email delivery)
 bento subscribers subscribe --email user@example.com
+
+# Engagement summary + recent events
+bento subscribers activity user@example.com
+bento subscribers activity --uuid 4f1c... --limit 50
 ```
 
 ### Tags
@@ -194,8 +198,89 @@ bento broadcasts create \
   --subject "What's new this month" \
   --content "<h1>Hello!</h1><p>Here's our update...</p>" \
   --type html \
-  --include-tags "newsletter,active"
+  --include-tags "newsletter,active" \
+  --author-id 1 \
+  --preview-text "Three things we shipped" \
+  --segment-id 12 \
+  --send-at 2026-11-20T09:00:00Z
+
+# Show one broadcast (content, audience, schedule, status)
+bento broadcasts get 456
+
+# Edit a draft, scheduled, or paused broadcast
+bento broadcasts update 456 --subject "New subject" --html-file ./emails/jan.html
+bento broadcasts update 456 --include-tags "vip,beta" --exclude-tags ""   # "" clears
+bento broadcasts update 456 --segment-id none                             # clear segment
+
+# Approve for sending (asks first; --confirm or BENTO_AUTO_CONFIRM=true skips the prompt)
+bento broadcasts update 456 --approve
+bento broadcasts update 456 --unapprove
 ```
+
+`--include-tags` / `--exclude-tags` are sent as arrays. Broadcasts that are sending, sent, or
+canceled cannot be edited (the API returns 409).
+
+### Emails (render and test)
+
+```bash
+# Render + validate Liquid. Exits 1 when invalid. Never sends.
+bento emails render --template-id 123
+bento emails render --broadcast-id 456 --email jane@example.com   # render as a subscriber
+bento emails render --subject "Hi {{ visitor.first_name }}" --html-file ./email.html \
+  --preview-text "Peek" --html            # print rendered HTML instead of text
+bento emails render --template-id 123 --out ./rendered.html
+
+# Send a test (max 5 recipients; team members or the site's sending domains only)
+bento emails test --template-id 123 --to me@acme.com,teammate@acme.com
+bento emails test --broadcast-id 456 --to me@acme.com --dry-run   # render only
+```
+
+Use exactly one source: `--template-id`, `--broadcast-id`, or `--subject` with `--html-file`.
+
+### Authors
+
+```bash
+bento authors list            # IDs for --author-id
+```
+
+### Segments
+
+```bash
+bento segments list
+bento segments get 12 --json
+bento segments create --name "Engaged VIPs" --description "VIPs who clicked" --query-file vip.json
+bento segments update 12 --query-file vip.json
+```
+
+`--query-file` holds the QueryBuilder group, the same shape as
+`data.attributes.visitor_event_query` from `bento segments get <id> --json`:
+
+```json
+{ "condition": "AND", "rules": [
+  { "id": "tags", "field": "tags", "operator": "contains", "value": "vip", "data": { "groupType": "visitor" } }
+] }
+```
+
+### Images
+
+```bash
+bento images upload ./hero.png    # prints the hosted URL (png, jpg, gif, webp, svg; max 10MB)
+```
+
+### Workflows
+
+```bash
+bento workflows list
+bento workflows get 42                     # diagram revision + node IDs
+bento workflows propose 42 \
+  --patch-file ./patch.json \
+  --summary "Add a 2-day wait after signup" \
+  --base-revision abc123
+bento workflows proposals 42               # pending + stale proposals
+```
+
+`propose` never edits the flow. It creates a proposal and prints a review URL. The change only
+takes effect after someone accepts it in the Flow Builder.
 
 ### Sequences
 
@@ -232,6 +317,11 @@ bento sequences update-email \
 bento sequences update-email \
   --template-id 12345 \
   --html-file ./emails/updated-welcome.html
+
+# Update the inbox preview text (alias: --preview-text)
+bento sequences update-email \
+  --template-id 12345 \
+  --inbox-snippet "A quick note before you start"
 ```
 
 Maintainer release order for this feature:
@@ -239,7 +329,7 @@ Maintainer release order for this feature:
 2. Publish a `bento-node-sdk` version that includes `createSequenceEmail`.
 3. Release `bento-cli` against that SDK version.
 
-Current API limitation: sequence email updates support `subject` and `html` fields only.
+Sequence email updates support `subject`, `html`, and `inbox_snippet`.
 
 ### Statistics
 
@@ -247,6 +337,28 @@ Current API limitation: sequence email updates support `subject` and `html` fiel
 # View site-wide stats
 bento stats site
 ```
+
+### Agent workflow: render → test → propose
+
+Agents (and CI) should check their work before anything reaches subscribers:
+
+```bash
+# 1. Validate Liquid and inspect the output. Non-zero exit = fix before continuing.
+bento emails render --subject "$SUBJECT" --html-file draft.html --json
+
+# 2. Send it to yourself.
+bento emails test --subject "$SUBJECT" --html-file draft.html --to me@acme.com
+
+# 3a. Apply to a draft broadcast (approval stays a separate, confirmed step).
+bento broadcasts update 456 --subject "$SUBJECT" --html-file draft.html
+
+# 3b. Flows are never edited directly: propose, then a human accepts in the Flow Builder.
+bento workflows get 42 --json            # read diagram_revision + node IDs
+bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
+```
+
+File flags (`--html-file`, `--query-file`, `--patch-file`, `--out`, `images upload`) only accept
+paths inside the current working directory.
 
 ## Output Modes
 

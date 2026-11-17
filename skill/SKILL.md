@@ -3,13 +3,14 @@ name: bento-cli
 description: >
   Guide for using Bento CLI to manage email marketing operations.
   Use when running bento commands, managing subscribers, tags, events,
-  or automating email marketing workflows. Triggers on: bento CLI usage,
-  subscriber management, email list operations, CSV imports.
+  broadcasts, segments, or flows, or automating email marketing workflows.
+  Triggers on: bento CLI usage, subscriber management, email list operations,
+  CSV imports, rendering or test-sending emails, proposing flow changes.
 ---
 
 # Bento CLI
 
-A command-line interface for [Bento](https://bentonow.com) email marketing. Manage subscribers, tags, events, and broadcasts directly from the terminal.
+A command-line interface for [Bento](https://bentonow.com) email marketing. Manage subscribers, tags, events, broadcasts, segments, and flows directly from the terminal.
 
 ## Philosophy: Safety-First Automation
 
@@ -94,6 +95,12 @@ bento subscribers unsubscribe --file unsubscribes.csv --confirm
 bento subscribers subscribe --email user@example.com     # Re-subscribe
 ```
 
+**Activity** (engagement summary + recent events):
+```bash
+bento subscribers activity user@example.com
+bento subscribers activity --uuid 4f1c... --limit 50 --json
+```
+
 ### Tags
 
 ```bash
@@ -126,14 +133,68 @@ bento events track \
 
 ```bash
 bento broadcasts list                     # List all broadcasts
+bento broadcasts get 456                  # Content, audience, schedule, status
 
 bento broadcasts create \
   --name "January Newsletter" \
   --subject "What's new this month" \
   --content "<h1>Hello!</h1><p>Here's our update...</p>" \
   --type html \
-  --include-tags "newsletter,active"
+  --include-tags "newsletter,active" \
+  --author-id 1 --preview-text "Three things we shipped" \
+  --segment-id 12 --send-at 2026-11-20T09:00:00Z
+
+bento broadcasts update 456 --subject "New subject" --html-file ./jan.html
+bento broadcasts update 456 --include-tags "" --segment-id none   # clear audience filters
+bento broadcasts update 456 --approve --confirm                   # approve for sending
 ```
+
+Only draft, scheduled, and paused broadcasts are editable (409 otherwise). `--approve` prompts
+unless `--confirm` or `BENTO_AUTO_CONFIRM=true`. Never approve without an explicit request.
+
+### Emails (render and test)
+
+```bash
+bento emails render --template-id 123                       # exit 1 if Liquid is invalid
+bento emails render --broadcast-id 456 --email jane@example.com --html
+bento emails render --subject "Hi {{ visitor.first_name }}" --html-file draft.html --json
+bento emails test --template-id 123 --to me@acme.com        # max 5 recipients
+bento emails test --template-id 123 --to me@acme.com --dry-run
+```
+
+Sources: exactly one of `--template-id`, `--broadcast-id`, or `--subject` + `--html-file`
+(`--preview-text` optional). Test recipients must be team members or on the site's sending
+domains.
+
+### Authors, Segments, Images
+
+```bash
+bento authors list                                          # IDs for --author-id
+bento segments list
+bento segments get 12 --json                                # includes visitor_event_query
+bento segments create --name "Engaged VIPs" --query-file vip.json
+bento segments update 12 --description "VIPs who clicked"
+bento images upload ./hero.png                              # prints hosted URL (max 10MB)
+```
+
+### Sequences
+
+```bash
+bento sequences list
+bento sequences create-email --sequence-id 123 --subject "Welcome" --html-file welcome.html
+bento sequences update-email --template-id 12345 --inbox-snippet "Preview text"
+```
+
+### Workflows (Flows)
+
+```bash
+bento workflows list
+bento workflows get 42 --json                               # diagram_revision + node IDs
+bento workflows propose 42 --patch-file patch.json --summary "Add 2-day wait" --base-revision abc123
+bento workflows proposals 42
+```
+
+`propose` never changes a flow. It returns a review URL; a human accepts it in the Flow Builder.
 
 ### Statistics
 
@@ -256,6 +317,25 @@ bento subscribers unsubscribe --file list.csv --dry-run
 ```
 
 ## Common Workflows
+
+### Agent workflow: render → test → propose
+```bash
+# 1. Validate Liquid. A non-zero exit means fix the template before going further.
+bento emails render --subject "$SUBJECT" --html-file draft.html --json
+
+# 2. Send yourself a test.
+bento emails test --subject "$SUBJECT" --html-file draft.html --to me@acme.com
+
+# 3a. Apply to a draft broadcast. Approval is a separate step the user asks for.
+bento broadcasts update 456 --subject "$SUBJECT" --html-file draft.html
+
+# 3b. For flows, propose and hand the review URL to the user.
+bento workflows get 42 --json
+bento workflows propose 42 --patch-file patch.json --summary "..." --base-revision "$REV"
+```
+
+File flags (`--html-file`, `--query-file`, `--patch-file`, `--out`, `images upload`) only accept
+paths inside the current working directory.
 
 ### CI/CD: Sync subscribers from database
 ```bash
