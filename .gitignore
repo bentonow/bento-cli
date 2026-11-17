@@ -51,3 +51,6 @@ PLANS.md
 CLI_SPEC.md
 *-results.md
 *-test-commands.md
+
+# Test scratch dirs created inside the repo (file-path guard requires cwd)
+.tmp-*/

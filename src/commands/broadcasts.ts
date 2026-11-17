@@ -3,13 +3,28 @@
  *
  * Commands:
  * - bento broadcasts list - List all broadcasts
+ * - bento broadcasts get <id> - Show one broadcast
  * - bento broadcasts create --name <n> --subject <s> [options] - Create a new broadcast draft
+ * - bento broadcasts update <id> [options] - Edit a draft, scheduled, or paused broadcast
  */
 
-import { Command } from "commander";
-import { bento, CLIError } from "../core/sdk";
+import chalk from "chalk";
+import type { Command } from "commander";
 import { output } from "../core/output";
-import type { Broadcast, BroadcastType, CreateBroadcastInput } from "../types/sdk";
+import { safety } from "../core/safety";
+import { CLIError, bento } from "../core/sdk";
+import type { BroadcastCreate, BroadcastDetail, BroadcastUpdate } from "../types/agentic";
+import type { Broadcast, BroadcastType } from "../types/sdk";
+import {
+  emitJson,
+  exitWithError,
+  formatTimestamp,
+  parseCsvList,
+  parseIsoTimestamp,
+  parsePositiveInt,
+  validationError,
+} from "../utils/command";
+import { readSafeTextFile } from "../utils/files";
 
 interface ListOptions {
   page?: string;
@@ -26,12 +41,34 @@ interface CreateOptions {
   includeTags?: string;
   excludeTags?: string;
   batchSize?: string;
+  previewText?: string;
+  authorId?: string;
+  segmentId?: string;
+  sendAt?: string;
 }
 
+interface UpdateOptions {
+  name?: string;
+  subject?: string;
+  htmlFile?: string;
+  type?: string;
+  previewText?: string;
+  authorId?: string;
+  segmentId?: string;
+  includeTags?: string;
+  excludeTags?: string;
+  sendAt?: string;
+  batchSize?: string;
+  approve?: boolean;
+  unapprove?: boolean;
+  confirm?: boolean;
+}
+
+const MAX_HTML_BYTES = 524_288;
+const UPDATE_CONTENT_TYPES = ["plain", "raw"] as const;
+
 export function registerBroadcastsCommands(program: Command): void {
-  const broadcasts = program
-    .command("broadcasts")
-    .description("Manage email broadcasts");
+  const broadcasts = program.command("broadcasts").description("Manage email broadcasts");
 
   broadcasts
     .command("list")
@@ -118,7 +155,13 @@ export function registerBroadcastsCommands(program: Command): void {
                 success: true,
                 error: null,
                 data: [],
-                meta: { count: 0, page, pageSize: perPage, total: result.total ?? 0, hasMore: false },
+                meta: {
+                  count: 0,
+                  page,
+                  pageSize: perPage,
+                  total: result.total ?? 0,
+                  hasMore: false,
+                },
               });
             } else {
               output.info("No broadcasts found.");
@@ -148,7 +191,9 @@ export function registerBroadcastsCommands(program: Command): void {
             if (!output.isQuiet()) {
               const totalText = typeof result.total === "number" ? ` of ${result.total}` : "";
               const moreText = result.hasMore ? " (more available)" : "";
-              output.info(`Page ${page}, showing ${result.broadcasts.length}${totalText}${moreText}`);
+              output.info(
+                `Page ${page}, showing ${result.broadcasts.length}${totalText}${moreText}`
+              );
             }
           }
         } else {
@@ -201,6 +246,10 @@ export function registerBroadcastsCommands(program: Command): void {
     .option("--include-tags <tags>", "Comma-separated tags to include")
     .option("--exclude-tags <tags>", "Comma-separated tags to exclude")
     .option("--batch-size <size>", "Emails to send per hour", "1000")
+    .option("--preview-text <text>", "Inbox preview text")
+    .option("--author-id <id>", "Sender author ID from 'bento authors list'")
+    .option("--segment-id <id>", "Segment ID to target")
+    .option("--send-at <iso>", "Schedule time (ISO 8601)")
     .action(async (options: CreateOptions) => {
       try {
         // Validate type
@@ -212,32 +261,31 @@ export function registerBroadcastsCommands(program: Command): void {
         }
 
         // Parse batch size
-        const batchSize = parseInt(options.batchSize || "1000", 10);
-        if (isNaN(batchSize) || batchSize < 1) {
+        const batchSize = Number.parseInt(options.batchSize || "1000", 10);
+        if (Number.isNaN(batchSize) || batchSize < 1) {
           output.error("Batch size must be a positive number.");
           process.exit(1);
         }
 
-        // Build broadcast input
-        const input: CreateBroadcastInput = {
+        const input: BroadcastCreate = {
           name: options.name,
           subject: options.subject,
           content: options.content || "",
           type: contentType,
-          from: {
-            name: options.fromName || "",
-            email: options.fromEmail || "",
-          },
           batch_size_per_hour: batchSize,
         };
 
-        if (options.includeTags) {
-          input.inclusive_tags = options.includeTags;
+        if (options.fromName || options.fromEmail || options.authorId === undefined) {
+          input.from = { name: options.fromName || "", email: options.fromEmail || "" };
         }
-
-        if (options.excludeTags) {
-          input.exclusive_tags = options.excludeTags;
-        }
+        if (options.includeTags) input.inclusive_tags = parseCsvList(options.includeTags);
+        if (options.excludeTags) input.exclusive_tags = parseCsvList(options.excludeTags);
+        if (options.previewText !== undefined) input.preview_text = options.previewText;
+        const authorId = parsePositiveInt(options.authorId, "--author-id");
+        if (authorId !== undefined) input.author_id = authorId;
+        const segmentId = parsePositiveInt(options.segmentId, "--segment-id");
+        if (segmentId !== undefined) input.segment_id = segmentId;
+        if (options.sendAt) input.send_at = parseIsoTimestamp(options.sendAt, "--send-at");
 
         output.startSpinner("Creating broadcast...");
 
@@ -280,21 +328,177 @@ export function registerBroadcastsCommands(program: Command): void {
         process.exit(1);
       }
     });
+
+  broadcasts
+    .command("get")
+    .description("Show a broadcast's content, audience, schedule, and status")
+    .argument("<id>", "Broadcast ID")
+    .action(async (id: string) => {
+      try {
+        output.startSpinner("Fetching broadcast...");
+        const broadcast = await bento.getBroadcast(requireId(id));
+        output.stopSpinner();
+
+        if (output.isJson()) {
+          emitJson(broadcast);
+          return;
+        }
+        printBroadcast(broadcast);
+      } catch (error) {
+        exitWithError(error);
+      }
+    });
+
+  broadcasts
+    .command("update")
+    .description("Update a draft, scheduled, or paused broadcast")
+    .argument("<id>", "Broadcast ID")
+    .option("--name <name>", "Broadcast name")
+    .option("--subject <subject>", "Email subject line")
+    .option("--html-file <path>", "Replace the email body with this HTML file")
+    .option("--type <type>", `Content type: ${UPDATE_CONTENT_TYPES.join(", ")}`)
+    .option("--preview-text <text>", "Inbox preview text")
+    .option("--author-id <id>", "Sender author ID from 'bento authors list'")
+    .option("--segment-id <id>", "Segment ID to target ('none' clears it)")
+    .option("--include-tags <tags>", "Comma-separated tags to include ('' clears)")
+    .option("--exclude-tags <tags>", "Comma-separated tags to exclude ('' clears)")
+    .option("--send-at <iso>", "Schedule time (ISO 8601)")
+    .option("--batch-size <size>", "Emails to send per hour")
+    .option("--approve", "Approve the broadcast for sending (asks for confirmation)")
+    .option("--unapprove", "Revoke approval")
+    .option("--confirm", "Skip the approval confirmation prompt")
+    .action(async (id: string, options: UpdateOptions) => {
+      try {
+        const broadcastId = requireId(id);
+        const changes = await buildBroadcastUpdate(options);
+
+        if (changes.approved === true) {
+          const confirmed = await safety.confirmAction(
+            `Approve broadcast ${broadcastId} for sending?`,
+            { confirm: Boolean(options.confirm) }
+          );
+          if (!confirmed) {
+            output.warn("Broadcast not approved. Re-run with --confirm to approve.");
+            process.exitCode = 1;
+            return;
+          }
+        }
+
+        output.startSpinner("Updating broadcast...");
+        const broadcast = await bento.updateBroadcast(broadcastId, changes);
+        output.stopSpinner("Broadcast updated");
+
+        if (output.isJson()) {
+          emitJson(broadcast, { count: 1, updatedFields: Object.keys(changes) });
+          return;
+        }
+        if (!output.isQuiet()) {
+          output.success(`Updated broadcast ${broadcastId}: ${Object.keys(changes).join(", ")}`);
+          printBroadcast(broadcast);
+        }
+      } catch (error) {
+        exitWithError(error);
+      }
+    });
+}
+
+async function buildBroadcastUpdate(options: UpdateOptions): Promise<BroadcastUpdate> {
+  if (options.approve && options.unapprove) {
+    throw validationError("Use only one of --approve or --unapprove.");
+  }
+  if (options.type !== undefined && !options.htmlFile) {
+    throw validationError("--type only applies together with --html-file.");
+  }
+  if (
+    options.type !== undefined &&
+    !UPDATE_CONTENT_TYPES.includes(options.type as (typeof UPDATE_CONTENT_TYPES)[number])
+  ) {
+    throw validationError(`--type must be one of: ${UPDATE_CONTENT_TYPES.join(", ")}`);
+  }
+
+  const changes: BroadcastUpdate = {};
+  if (options.name !== undefined) changes.name = options.name;
+  if (options.subject !== undefined) changes.subject = options.subject;
+  if (options.htmlFile) {
+    changes.content = await readSafeTextFile(options.htmlFile, "HTML file", MAX_HTML_BYTES);
+    if (options.type) changes.type = options.type as BroadcastUpdate["type"];
+  }
+  if (options.previewText !== undefined) changes.preview_text = options.previewText;
+  const authorId = parsePositiveInt(options.authorId, "--author-id");
+  if (authorId !== undefined) changes.author_id = authorId;
+  if (options.segmentId !== undefined) {
+    changes.segment_id =
+      options.segmentId.trim().toLowerCase() === "none"
+        ? null
+        : (parsePositiveInt(options.segmentId, "--segment-id") as number);
+  }
+  if (options.includeTags !== undefined) changes.inclusive_tags = parseCsvList(options.includeTags);
+  if (options.excludeTags !== undefined) changes.exclusive_tags = parseCsvList(options.excludeTags);
+  if (options.sendAt !== undefined)
+    changes.send_at = parseIsoTimestamp(options.sendAt, "--send-at");
+  const batchSize = parsePositiveInt(options.batchSize, "--batch-size");
+  if (batchSize !== undefined) changes.batch_size_per_hour = batchSize;
+  if (options.approve) changes.approved = true;
+  if (options.unapprove) changes.approved = false;
+
+  if (Object.keys(changes).length === 0) {
+    throw validationError("Nothing to update. Pass at least one field flag (see --help).");
+  }
+  return changes;
+}
+
+function requireId(id: string): string {
+  const trimmed = id.trim();
+  if (!trimmed) throw validationError("Broadcast ID cannot be empty.");
+  return trimmed;
+}
+
+function printBroadcast(broadcast: BroadcastDetail): void {
+  const a = broadcast.attributes;
+  const audience = a.audience;
+  const author = a.author
+    ? `${a.author.name ?? ""} <${a.author.email ?? ""}> (id ${a.author.id})`
+    : "—";
+  const rows: Array<[string, string]> = [
+    ["ID", broadcast.id],
+    ["Name", a.name],
+    ["Status", a.status],
+    ["Subject", a.subject ?? "—"],
+    ["Preview text", a.preview_text ?? "—"],
+    ["Author", author],
+    ["Segments", audience?.segment_ids.length ? audience.segment_ids.join(", ") : "—"],
+    ["Include tags", audience?.inclusive_tags.length ? audience.inclusive_tags.join(", ") : "—"],
+    ["Exclude tags", audience?.exclusive_tags.length ? audience.exclusive_tags.join(", ") : "—"],
+    ["Send at", formatTimestamp(a.send_at)],
+    ["Approved at", formatTimestamp(a.approved_at)],
+    ["Batch size/hour", a.batch_size_per_hour?.toLocaleString() ?? "—"],
+    ["Template ID", a.template_id?.toString() ?? "—"],
+    ["Share URL", a.share_url ?? "—"],
+  ];
+  for (const [label, value] of rows) {
+    output.log(`${chalk.bold(`${label}:`.padEnd(17))}${value}`);
+  }
+}
+
+interface BroadcastListAttributes {
+  name: string;
+  subject?: string;
+  created_at: string;
+  template?: { subject?: string };
+  stats?: { recipients?: number; total_opens?: number; total_clicks?: number };
 }
 
 function broadcastsToRows(broadcasts: Broadcast[]) {
   return broadcasts.map((b) => {
-    const attrs = b.attributes as Record<string, unknown>;
-    const template = attrs.template as { subject?: string } | undefined;
-    const stats = attrs.stats as { recipients?: number; total_opens?: number; total_clicks?: number } | undefined;
+    const attrs = b.attributes as unknown as BroadcastListAttributes;
 
     return {
-      name: attrs.name as string,
-      subject: template?.subject ?? (attrs.subject as string) ?? "-",
-      recipients: stats?.recipients?.toLocaleString() ?? "-",
-      opens: stats?.total_opens?.toLocaleString() ?? "-",
-      clicks: stats?.total_clicks?.toLocaleString() ?? "-",
-      created: formatDate(attrs.created_at as string),
+      name: attrs.name,
+      subject: attrs.template?.subject ?? attrs.subject ?? "-",
+      recipients: attrs.stats?.recipients?.toLocaleString() ?? "-",
+      opens: attrs.stats?.total_opens?.toLocaleString() ?? "-",
+      clicks: attrs.stats?.total_clicks?.toLocaleString() ?? "-",
+      created: formatDate(attrs.created_at),
     };
   });
 }

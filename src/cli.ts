@@ -3,15 +3,20 @@ import { Command } from "commander";
 
 import packageJson from "../package.json" with { type: "json" };
 import { registerAuthCommands } from "./commands/auth";
+import { registerAuthorsCommands } from "./commands/authors";
 import { registerBroadcastsCommands } from "./commands/broadcasts";
 import { registerDashboardCommand } from "./commands/dashboard";
+import { registerEmailsCommands } from "./commands/emails";
 import { registerEventsCommands } from "./commands/events";
 import { registerFieldsCommands } from "./commands/fields";
+import { registerImagesCommands } from "./commands/images";
 import { registerProfileCommands } from "./commands/profile";
+import { registerSegmentsCommands } from "./commands/segments";
 import { registerSequencesCommands } from "./commands/sequences";
 import { registerStatsCommands } from "./commands/stats";
 import { registerSubscribersCommands } from "./commands/subscribers";
 import { registerTagsCommands } from "./commands/tags";
+import { registerWorkflowsCommands } from "./commands/workflows";
 import { config } from "./core/config";
 import { output } from "./core/output";
 
@@ -52,7 +57,12 @@ registerTagsCommands(program);
 registerFieldsCommands(program);
 registerEventsCommands(program);
 registerBroadcastsCommands(program);
+registerEmailsCommands(program);
+registerAuthorsCommands(program);
+registerSegmentsCommands(program);
+registerImagesCommands(program);
 registerSequencesCommands(program);
+registerWorkflowsCommands(program);
 registerStatsCommands(program);
 registerDashboardCommand(program);
 
