@@ -3,8 +3,7 @@ import { Command } from "commander";
 import { config } from "../core/config";
 import { output } from "../core/output";
 import { openInBrowser, BrowserOpenError } from "../utils/browser";
-
-const DASHBOARD_BASE_URL = process.env.BENTO_DASHBOARD_URL ?? "https://app.bentonow.com/";
+import { DASHBOARD_BASE_URL } from "../utils/dashboard-url";
 
 interface DashboardCommandOptions {
   profile?: string;
