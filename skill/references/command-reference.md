@@ -139,6 +139,8 @@ bento subscribers search --tag vip --page 2 --per-page 50
 | `--page <n>` | Page number (default: 1) |
 | `--per-page <n>` | Results per page (default: 25) |
 
+**Linking to a subscriber**: the JSON output includes `dashboardUrl`, the subscriber's page in the Bento dashboard. Use it as-is when giving someone a link. Do not build a link from `uuid`: the dashboard does not accept UUIDs in its URLs. `dashboardUrl` is `null` when the API returns no link.
+
 ### subscribers import
 
 Import subscribers from a CSV file.

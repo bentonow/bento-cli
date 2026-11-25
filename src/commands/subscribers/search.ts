@@ -6,6 +6,7 @@ import type {
   FieldFilter,
   Subscriber,
 } from "../../types/sdk";
+import { resolveDashboardUrl } from "../../utils/dashboard-url";
 import { handleSubscriberError, lookupTagNames, requireAtLeastOneFilter } from "./helpers";
 
 interface SearchCommandOptions {
@@ -18,6 +19,7 @@ interface SearchCommandOptions {
 interface SubscriberRow {
   email: string;
   uuid: string;
+  dashboardUrl: string | null;
   name: string;
   status: string;
   tags: string[];
@@ -162,6 +164,7 @@ async function renderResults(
       data: rows.map((row) => ({
         email: row.email,
         uuid: row.uuid,
+        dashboardUrl: row.dashboardUrl,
         name: row.name,
         status: row.status,
         tags: row.tags,
@@ -191,6 +194,12 @@ async function renderResults(
       emptyMessage: "No subscribers found.",
     }
   );
+
+  for (const row of rows) {
+    if (row.dashboardUrl) {
+      output.info(`Dashboard: ${row.dashboardUrl}`);
+    }
+  }
 }
 
 function buildRow(
@@ -201,10 +210,15 @@ function buildRow(
   const tags = (subscriber.attributes.cached_tag_ids ?? []).map((id) => tagLookup.get(id) ?? id);
   const name = deriveName(fields);
   const status = subscriber.attributes.unsubscribed_at ? "unsubscribed" : "active";
+  // The API returns the dashboard path as `navigation_url`; the SDK's types don't declare it yet.
+  // The dashboard addresses subscribers by a prefixed id, so a link built from `uuid` is a dead one.
+  const attributes = subscriber.attributes;
+  const navigationUrl = "navigation_url" in attributes ? attributes.navigation_url : undefined;
 
   return {
     email: subscriber.attributes.email,
     uuid: subscriber.attributes.uuid,
+    dashboardUrl: resolveDashboardUrl(navigationUrl),
     name,
     status,
     tags,

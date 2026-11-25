@@ -120,6 +120,104 @@ describe("subscribers search command", () => {
     jsonSpy.mockRestore();
   });
 
+  it("includes the dashboard URL from the API's navigation_url in JSON output", async () => {
+    const sub = makeSubscriber();
+    Object.assign(sub.attributes, { navigation_url: "/account/visitors/visitor_abc123" });
+
+    const searchSpy = spyOn(bento, "searchSubscribers").mockResolvedValue({ subscriber: sub });
+    const tagsSpy = spyOn(bento, "getTags").mockResolvedValue([]);
+    const jsonSpy = spyOn(output, "json").mockImplementation(() => {});
+
+    output.setMode("json");
+
+    const program = buildProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "subscribers",
+      "search",
+      "--email",
+      "user@example.com",
+    ]);
+
+    const jsonPayload = jsonSpy.mock.calls[0][0] as { data: { dashboardUrl: string | null }[] };
+    expect(jsonPayload.data[0].dashboardUrl).toBe(
+      "https://app.bentonow.com/account/visitors/visitor_abc123"
+    );
+
+    searchSpy.mockRestore();
+    tagsSpy.mockRestore();
+    jsonSpy.mockRestore();
+  });
+
+  it("prints the dashboard URL under the table", async () => {
+    const sub = makeSubscriber();
+    Object.assign(sub.attributes, { navigation_url: "/account/visitors/visitor_abc123" });
+
+    const searchSpy = spyOn(bento, "searchSubscribers").mockResolvedValue({ subscriber: sub });
+    const tagsSpy = spyOn(bento, "getTags").mockResolvedValue([]);
+    const tableSpy = spyOn(output, "table").mockImplementation(() => {});
+    const infoSpy = spyOn(output, "info").mockImplementation(() => {});
+
+    const program = buildProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "subscribers",
+      "search",
+      "--email",
+      "user@example.com",
+    ]);
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      "Dashboard: https://app.bentonow.com/account/visitors/visitor_abc123"
+    );
+
+    searchSpy.mockRestore();
+    tagsSpy.mockRestore();
+    tableSpy.mockRestore();
+    infoSpy.mockRestore();
+  });
+
+  it("reports a null dashboard URL when navigation_url is missing or not a dashboard path", async () => {
+    const tagsSpy = spyOn(bento, "getTags").mockResolvedValue([]);
+    const jsonSpy = spyOn(output, "json").mockImplementation(() => {});
+    output.setMode("json");
+
+    for (const navigationUrl of [
+      undefined,
+      null,
+      "",
+      "https://evil.example/x",
+      "//evil.example/x",
+    ]) {
+      const sub = makeSubscriber();
+      if (navigationUrl !== undefined) {
+        Object.assign(sub.attributes, { navigation_url: navigationUrl });
+      }
+      const searchSpy = spyOn(bento, "searchSubscribers").mockResolvedValue({ subscriber: sub });
+
+      const program = buildProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "subscribers",
+        "search",
+        "--email",
+        "user@example.com",
+      ]);
+
+      const calls = jsonSpy.mock.calls;
+      const jsonPayload = calls[calls.length - 1][0] as { data: { dashboardUrl: string | null }[] };
+      expect(jsonPayload.data[0].dashboardUrl).toBeNull();
+
+      searchSpy.mockRestore();
+    }
+
+    tagsSpy.mockRestore();
+    jsonSpy.mockRestore();
+  });
+
   it("returns empty when subscriber does not have matching tag", async () => {
     const sub = makeSubscriber({
       attributes: {
